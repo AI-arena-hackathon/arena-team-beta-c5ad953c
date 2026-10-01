@@ -320,12 +320,70 @@ describe('app factory defaults', () => {
     expect(createApp()).toBeDefined();
   });
 
-  it('does not start a listener when the app is built', () => {
-    const fake = express();
-    fake.get('/health', (_req, res) => {
-      res.json({ status: 'ok' });
-    });
-    expect(fake).toBeDefined();
+  it('serves health from an app built with no injected dependencies', async () => {
+    await request(createApp()).get('/health').expect(200);
+  });
+});
+
+describe('security headers', () => {
+  it('sets nosniff, frame denial, referrer policy and a same-origin CSP', async () => {
+    const { app } = createTestApp();
+
+    const response = await request(app).get('/health').expect(200);
+
+    expect(response.headers['x-content-type-options']).toBe('nosniff');
+    expect(response.headers['x-frame-options']).toBe('DENY');
+    expect(response.headers['referrer-policy']).toBe('no-referrer');
+    expect(response.headers['content-security-policy']).toContain("default-src 'self'");
+    expect(response.headers['content-security-policy']).toContain("object-src 'none'");
+  });
+
+  it('does not advertise the server framework', async () => {
+    const { app } = createTestApp();
+
+    const response = await request(app).get('/health').expect(200);
+
+    expect(response.headers['x-powered-by']).toBeUndefined();
+  });
+
+  it('applies the headers to the UI page too', async () => {
+    const { app } = createTestApp();
+
+    const response = await request(app).get('/').expect(200);
+
+    expect(response.headers['x-content-type-options']).toBe('nosniff');
+  });
+});
+
+describe('cors', () => {
+  it('sends no cross-origin headers when no origins are configured', async () => {
+    const { app } = createTestApp();
+
+    const response = await request(app).get('/health').set('origin', 'https://evil.example').expect(200);
+
+    expect(response.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  it('echoes only a configured origin', async () => {
+    const { app } = createTestApp({ corsOrigins: ['https://app.example'] });
+
+    const allowed = await request(app).get('/health').set('origin', 'https://app.example').expect(200);
+    const denied = await request(app).get('/health').set('origin', 'https://evil.example').expect(200);
+
+    expect(allowed.headers['access-control-allow-origin']).toBe('https://app.example');
+    expect(denied.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  it('answers a preflight only for a configured origin', async () => {
+    const { app } = createTestApp({ corsOrigins: ['https://app.example'] });
+
+    const response = await request(app)
+      .options('/api/receipts')
+      .set('origin', 'https://app.example')
+      .set('access-control-request-method', 'POST')
+      .expect(204);
+
+    expect(response.headers['access-control-allow-methods']).toContain('POST');
   });
 });
 

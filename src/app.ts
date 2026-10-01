@@ -1,7 +1,7 @@
 import path from 'path';
-import cors from 'cors';
 import express, { type Express } from 'express';
-import { createApiRouter, MAX_PAGE_SIZE } from './routes/api';
+import { createApiRouter } from './routes/api';
+import { createCorsMiddleware, securityHeaders } from './middleware/security';
 import { errorHandler, notFoundHandler } from './middleware/errors';
 import { devHeaderIdentityResolver, type IdentityResolver } from './middleware/identity';
 import { DEFAULT_MONTHLY_LIMIT } from './services/capture';
@@ -19,6 +19,7 @@ export interface AppDeps {
   ocrFallbackEnabled?: boolean;
   textractEnabled?: boolean;
   serveUi?: boolean;
+  corsOrigins?: readonly string[];
 }
 
 /**
@@ -30,7 +31,8 @@ export function createApp(deps: AppDeps = {}): Express {
   const app = express();
 
   app.disable('x-powered-by');
-  app.use(cors());
+  app.use(securityHeaders);
+  app.use(createCorsMiddleware(deps.corsOrigins ?? []));
   app.use(express.json({ limit: '256kb' }));
   app.use('/api/uploads', express.raw({ type: () => true, limit: '10mb' }));
 
@@ -46,7 +48,7 @@ export function createApp(deps: AppDeps = {}): Express {
       identityResolver: deps.identityResolver ?? devHeaderIdentityResolver,
       ocrFallbackEnabled: deps.ocrFallbackEnabled,
       textractEnabled: deps.textractEnabled,
-      imageStore: deps.imageStore,
+      imageStore: deps.imageStore ?? createMemoryImageStore(),
     })
   );
 
@@ -55,5 +57,3 @@ export function createApp(deps: AppDeps = {}): Express {
 
   return app;
 }
-
-export { MAX_PAGE_SIZE };

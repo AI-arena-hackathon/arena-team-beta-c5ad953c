@@ -79,6 +79,7 @@ and the OCR pipeline has something to pick up the moment `complete` lands.
 | `UPLOAD_SIGNER` | `memory` when storage is `memory`, else `s3` | where signed upload URLs point |
 | `DEV_AUTH_HEADER_ENABLED` | `true` outside production, **always `false` in production** | enables the `x-user-id` placeholder identity |
 | `MAX_RECEIPTS_PER_MONTH` | `50` | free-tier cap enforced in `captureReceipt` |
+| `CORS_ALLOWED_ORIGINS` | unset (same-origin only) | comma-separated browser-origin allowlist; no CORS headers when unset |
 
 Default configuration = zero external dependencies: `npm run dev` boots, and a
 receipt can be captured, uploaded and listed without an AWS account. Nothing is
@@ -95,6 +96,20 @@ is the only place errors become HTTP responses:
 
 Never echo a raw upstream (AWS/SDK) message into a response — it leaks internal
 paths. `capture.ts` logs and returns a generic message instead.
+
+## 5b. Request hardening (`middleware/security.ts`)
+
+Every response carries `Content-Security-Policy` (same-origin only, no inline
+script/style), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+`Referrer-Policy: no-referrer`, a `Permissions-Policy` that leaves the camera to
+this origin only, and `Cross-Origin-Opener-Policy`. `x-powered-by` is off.
+
+CORS is opt-in: with `CORS_ALLOWED_ORIGINS` unset the middleware is a no-op and
+no origin can read a response. When set, only allowlisted origins get
+`Access-Control-Allow-Origin` and preflight is answered for them alone.
+
+Body sizes are capped at the parser (`256kb` JSON, `10mb` raw for
+`/api/uploads`) and list pagination at `MAX_PAGE_SIZE = 200`.
 
 ## 6. Not built yet (next turns)
 

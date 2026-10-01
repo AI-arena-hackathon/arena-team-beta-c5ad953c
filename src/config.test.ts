@@ -38,6 +38,7 @@ describe('Configuration Module', () => {
       storage: { backend: 'memory' },
       uploads: { signer: 'memory' },
       auth: { devHeaderEnabled: true },
+      cors: { allowedOrigins: [] },
     });
   });
 
@@ -321,5 +322,18 @@ describe('Configuration Module', () => {
     process.env.UPLOAD_SIGNER = 'gcs';
 
     expect(() => loadConfig()).toThrow(/UPLOAD_SIGNER/);
+  });
+  it('should default corsOrigins to an empty list (same-origin only)', () => {
+    setMinimalEnv();
+    delete process.env.CORS_ALLOWED_ORIGINS;
+
+    expect(loadConfig().cors.allowedOrigins).toEqual([]);
+  });
+
+  it('should parse CORS_ALLOWED_ORIGINS into a trimmed list', () => {
+    setMinimalEnv();
+    process.env.CORS_ALLOWED_ORIGINS = 'https://a.example, https://b.example ,';
+
+    expect(loadConfig().cors.allowedOrigins).toEqual(['https://a.example', 'https://b.example']);
   });
 });

@@ -10,10 +10,6 @@ import {
 import { ReceiptNotFoundError, StoreError, type ReceiptStore } from './store';
 import type { Receipt, UpdateReceiptInput } from '../types/receipt';
 
-export interface DynamoStoreDeps {
-  userId: string;
-}
-
 /**
  * `ReceiptStore` adapter over DynamoDB. DynamoDB has no partial-update helper in
  * the service layer, so changes are funnelled through the existing typed

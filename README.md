@@ -167,6 +167,9 @@ Everything is optional in the default (in-memory) mode — see
 - `MAX_RECEIPTS_PER_MONTH` - Free tier limit, enforced per user per UTC month (default: 50)
 - `DEV_AUTH_HEADER_ENABLED` - Accept the placeholder `x-user-id` identity.
   Defaults to on outside production and is **always off when `NODE_ENV=production`**.
+- `CORS_ALLOWED_ORIGINS` - Comma-separated browser-origin allowlist. Unset means
+  same-origin only: the API then emits no CORS headers, so no other origin can
+  read responses. The served console is same-origin, so it needs no entry.
 
 ### API Endpoints
 

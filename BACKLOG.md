@@ -20,19 +20,32 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [x] Add tests for configuration module (17 new tests)
 - [x] Create receipt schema/types with validation (src/types/receipt.ts) - 49 tests
 - [x] Create DynamoDB client wrapper for receipt CRUD operations (src/services/dynamodb.ts) - 40 tests
+- [x] Add S3 client wrapper for presigned URL generation (src/services/s3.ts) - safe path segments, sanitized extensions
+- [x] Receipt capture & upload service on the server (src/services/capture.ts, store/object-store ports, DynamoDB + S3 + memory adapters) - 15 tests
+- [x] HTTP layer: injectable app factory (src/app.ts) + /api routes for reserve, complete, list, get, usage, local uploads - 37 tests
+- [x] Browser capture console (public/index.html, app.js, styles.css) verified in headless Chromium end to end
+- [x] Request hardening: security headers + opt-in CORS allowlist (src/middleware/security.ts) - 6 tests
+- [x] Zero-config local run: npm run dev works with no AWS account (memory store + memory upload signer)
+- [x] Docs: docs/ARCHITECTURE.md, README setup/layout/API tables, .env.example, and .arena/skills/repo-navigation
 
 ## In Progress
 
 - (empty — the next build turn picks the top open task in Todo)
 
+## Follow-ups discovered
+
+- [ ] Upgrade the lint toolchain to eslint 9 + flat config to clear 6 dev-only `minimatch` ReDoS advisories (`npm audit` is clean for runtime deps)
+- [ ] Add per-IP rate limiting on capture endpoints; the monthly free-tier quota exists but there is no request-rate control yet
+- [ ] Validate image magic bytes on upload (content-type allowlist is enforced, bytes are not sniffed yet)
+
 ## Todo
 
 - [ ] Keep `.github/workflows/ci.yml` green on every push (it runs tests)
 - [ ] Wire product deploy: on CI green, build a preview (wrangler pages / docker image) and link it in README.md so judges can curl live product, not just repo
-- [ ] Implement receipt capture & upload service (React Native + camera + S3 presigned URLs)
+- [ ] Implement the React Native client (camera capture + presigned upload) — server side is done
 - [ ] Implement receipt processing pipeline (S3 trigger → Lambda → Textract → categorization → DynamoDB)
 - [ ] Implement export & sync module (CSV export, webhook to QuickBooks/Zero)
 - [ ] Add authentication with Cognito (OAuth2, JWT)
 - [ ] Add image preprocessing for OCR accuracy (auto-enhance, perspective correction)
-- [ ] Add rate limiting and cost controls (50 receipts/month free tier)
+- [ ] Add cost controls beyond the implemented 50 receipts/month free-tier cap
 - [ ] Add S3 client wrapper for presigned URL generation

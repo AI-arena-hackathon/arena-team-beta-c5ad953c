@@ -48,6 +48,10 @@ export interface AuthConfig {
   devHeaderEnabled: boolean;
 }
 
+export interface CorsConfig {
+  allowedOrigins: string[];
+}
+
 export interface AppConfig {
   server: ServerConfig;
   aws: AwsConfig;
@@ -59,6 +63,7 @@ export interface AppConfig {
   storage: StorageConfig;
   uploads: UploadsConfig;
   auth: AuthConfig;
+  cors: CorsConfig;
 }
 
 function emptyToUndefined(value: string): string | undefined {
@@ -108,6 +113,19 @@ function devAuthHeaderEnabled(nodeEnv: string): boolean {
   if (nodeEnv === 'production') return false;
   if (forced === undefined) return true;
   return forced.toLowerCase() === 'true';
+}
+
+/**
+ * Split a comma-separated allowlist. An unset or empty value means "same origin
+ * only" — the API then emits no CORS headers at all.
+ */
+function getEnvList(key: string): string[] {
+  const value = process.env[key];
+  if (value === undefined) return [];
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
 }
 
 function getEnvBoolean(key: string, defaultValue?: boolean): boolean {
@@ -183,6 +201,9 @@ export function loadConfig(): AppConfig {
     },
     auth: {
       devHeaderEnabled: devAuthHeaderEnabled(nodeEnv),
+    },
+    cors: {
+      allowedOrigins: getEnvList('CORS_ALLOWED_ORIGINS'),
     },
   };
 }

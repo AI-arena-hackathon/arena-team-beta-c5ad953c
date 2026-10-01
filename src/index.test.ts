@@ -3,8 +3,12 @@ import request from 'supertest';
 describe('composition root (src/index.ts)', () => {
   const originalEnv = process.env;
 
-  afterAll(() => {
+  // These tests re-require the composition root with different environments, so
+  // the env object is restored after every test — never only at the end of the
+  // file, or one test's environment leaks into the next one's expectations.
+  afterEach(() => {
     process.env = originalEnv;
+    jest.resetModules();
   });
 
   it('GET /health should return 200 with status ok', async () => {

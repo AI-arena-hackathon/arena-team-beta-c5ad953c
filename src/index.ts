@@ -32,6 +32,7 @@ export const app = createApp({
   identityResolver: config.auth.devHeaderEnabled ? devHeaderIdentityResolver : disabledIdentityResolver,
   ocrFallbackEnabled: config.features.enableOcrFallback,
   textractEnabled: config.textract.enabled,
+  corsOrigins: config.cors.allowedOrigins,
 });
 
 if (require.main === module) {
