@@ -32,3 +32,60 @@ Team beta — spec §3.2 hackathon build.
 - Ship as a web‑only PWA (camera via browser) to remove native build steps.  
 
 Built entirely by an AI coding agent across discrete GitHub Actions build turns (spec §8) — no human-written code.
+
+## Running the Project
+
+### Prerequisites
+- Node.js 18+
+- npm 9+
+
+### Setup
+```bash
+# Clone the repository
+git clone <repo-url>
+cd auto-expense-capture-assistant
+
+# Install dependencies
+npm install
+
+# Copy environment template
+cp .env.example .env
+# Edit .env with your values (PORT defaults to 3000)
+```
+
+### Development
+```bash
+# Run in development mode with hot reload
+npm run dev
+```
+
+### Production Build
+```bash
+# Compile TypeScript
+npm run build
+
+# Run compiled server
+npm start
+```
+
+### Testing
+```bash
+# Run tests with coverage
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+```
+
+### Linting
+```bash
+# Run ESLint
+npm run lint
+```
+
+### Environment Variables
+See `.env.example` for required variables:
+- `PORT` - Server port (default: 3000)
+
+### API Endpoints
+- `GET /health` - Health check, returns `{"status":"ok"}`

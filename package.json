@@ -1,0 +1,42 @@
+{
+  "name": "auto-expense-capture-assistant",
+  "version": "1.0.0",
+  "description": "Instantly turns a cluttered receipt pile into a clean, searchable expense record without manual entry",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "test": "jest --coverage",
+    "test:watch": "jest --watch",
+    "lint": "eslint src/**/*.ts"
+  },
+  "keywords": [
+    "expense",
+    "receipt",
+    "ocr",
+    "ai"
+  ],
+  "author": "AI Coding Agent",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "@types/node": "^20.10.6",
+    "@types/jest": "^29.5.11",
+    "typescript": "^5.3.3",
+    "ts-node": "^10.9.2",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.1",
+    "supertest": "^6.3.3",
+    "@types/supertest": "^6.0.2",
+    "eslint": "^8.56.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0"
+  }
+}
