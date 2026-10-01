@@ -1,28 +1,57 @@
 import request from 'supertest';
-import { app } from './index';
 
-describe('Health Endpoint', () => {
+describe('composition root (src/index.ts)', () => {
+  const originalEnv = process.env;
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
   it('GET /health should return 200 with status ok', async () => {
+    const { app } = require('./index');
+
     const response = await request(app).get('/health').expect(200);
+
     expect(response.body).toEqual({ status: 'ok' });
   });
 
   it('GET /health should have correct content type', async () => {
+    const { app } = require('./index');
+
     const response = await request(app).get('/health').expect(200);
+
     expect(response.headers['content-type']).toMatch(/json/);
   });
-});
 
-describe('404 Handling', () => {
-  it('GET /unknown should return 404', async () => {
+  it('returns the structured 404 envelope for unknown paths', async () => {
+    const { app } = require('./index');
+
     const response = await request(app).get('/unknown').expect(404);
-    expect(response.body).toHaveProperty('error', 'Not found');
-  });
-});
 
-describe('Error Handling', () => {
-  it('should handle server errors', async () => {
-    const response = await request(app).get('/health').expect(200);
-    expect(response.body.status).toBe('ok');
+    expect(response.body.error.code).toBe('NOT_FOUND');
+  });
+
+  it('wires the free-tier limit from MAX_RECEIPTS_PER_MONTH into /api/config', async () => {
+    process.env = { ...originalEnv, MAX_RECEIPTS_PER_MONTH: '3' };
+    jest.resetModules();
+    const { app } = require('./index');
+
+    const response = await request(app).get('/api/config').expect(200);
+
+    expect(response.body.features.maxReceiptsPerMonth).toBe(3);
+  });
+
+  it('fails closed on the dev identity header when NODE_ENV=production', async () => {
+    process.env = { ...originalEnv, NODE_ENV: 'production' };
+    jest.resetModules();
+    const { app } = require('./index');
+
+    const response = await request(app)
+      .post('/api/receipts')
+      .set('x-user-id', 'user_123')
+      .send({ image: { fileName: 'a.jpg', contentType: 'image/jpeg', size: 10 } })
+      .expect(401);
+
+    expect(response.body.error.code).toBe('UNAUTHENTICATED');
   });
 });

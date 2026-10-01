@@ -1,34 +1,30 @@
-import express, { type Request, type Response, type NextFunction } from 'express';
-import cors from 'cors';
 import dotenv from 'dotenv';
+import { createApp } from './app';
 import { getConfig } from './config';
+import { devHeaderIdentityResolver, disabledIdentityResolver } from './middleware/identity';
+import { createDynamoReceiptStore } from './services/dynamo-store';
+import { createMemoryStore, type ReceiptStore } from './services/store';
+import { createS3UploadSigner } from './services/uploads';
 
 dotenv.config();
 
 const config = getConfig();
-const app = express();
-const PORT = config.server.port;
 
-app.use(cors());
-app.use(express.json());
+function createStore(): ReceiptStore {
+  return config.storage.backend === 'dynamodb' ? createDynamoReceiptStore() : createMemoryStore();
+}
 
-app.get('/health', (_req: Request, res: Response) => {
-  res.json({ status: 'ok' });
+export const app = createApp({
+  store: createStore(),
+  uploadSigner: createS3UploadSigner(),
+  monthlyLimit: config.features.maxReceiptsPerMonth,
+  identityResolver: config.auth.devHeaderEnabled ? devHeaderIdentityResolver : disabledIdentityResolver,
+  ocrFallbackEnabled: config.features.enableOcrFallback,
+  textractEnabled: config.textract.enabled,
 });
-
-app.use((_req: Request, res: Response, _next: NextFunction) => {
-  res.status(404).json({ error: 'Not found' });
-});
-
-app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Internal server error' });
-});
-
-export { app };
 
 if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  app.listen(config.server.port, () => {
+    console.log(`Server running on port ${config.server.port} (storage: ${config.storage.backend})`);
   });
 }

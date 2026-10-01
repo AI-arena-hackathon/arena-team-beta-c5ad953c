@@ -94,6 +94,15 @@ export interface ReceiptQueryResult {
   count: number;
 }
 
+export const RECEIPT_IMAGE_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'] as const;
+
+/** Images above this size are rejected before a presigned URL is signed (10 MB). */
+export const MAX_RECEIPT_IMAGE_BYTES = 10 * 1024 * 1024;
+
+export function isSupportedReceiptImageType(contentType: string): boolean {
+  return (RECEIPT_IMAGE_CONTENT_TYPES as readonly string[]).includes(contentType);
+}
+
 export const RECEIPT_STATUS_VALUES = ['pending', 'processing', 'completed', 'failed', 'archived'] as const;
 export const OCR_ENGINE_VALUES = ['textract', 'tesseract'] as const;
 export const CATEGORY_SOURCE_VALUES = ['rule', 'ml', 'manual'] as const;

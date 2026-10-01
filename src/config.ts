@@ -36,6 +36,14 @@ export interface FeatureFlags {
   maxReceiptsPerMonth: number;
 }
 
+export interface StorageConfig {
+  backend: 'memory' | 'dynamodb';
+}
+
+export interface AuthConfig {
+  devHeaderEnabled: boolean;
+}
+
 export interface AppConfig {
   server: ServerConfig;
   aws: AwsConfig;
@@ -44,6 +52,8 @@ export interface AppConfig {
   cognito: CognitoConfig;
   textract: TextractConfig;
   features: FeatureFlags;
+  storage: StorageConfig;
+  auth: AuthConfig;
 }
 
 function getEnv(key: string, defaultValue?: string): string {
@@ -72,6 +82,25 @@ function getEnvNumber(key: string, defaultValue?: number): number {
   return parsed;
 }
 
+function getEnvEnum<T extends string>(key: string, allowed: readonly T[], defaultValue: T): T {
+  const value = getEnv(key, defaultValue);
+  if (!allowed.includes(value as T)) {
+    throw new Error(`Environment variable ${key} must be one of: ${allowed.join(', ')} (got: ${value})`);
+  }
+  return value as T;
+}
+
+/**
+ * The `x-user-id` placeholder identity is never allowed in production, whatever
+ * the environment says — production must fail closed until Cognito is wired in.
+ */
+function devAuthHeaderEnabled(nodeEnv: string): boolean {
+  const forced = process.env.DEV_AUTH_HEADER_ENABLED;
+  if (nodeEnv === 'production') return false;
+  if (forced === undefined) return true;
+  return forced.toLowerCase() === 'true';
+}
+
 function getEnvBoolean(key: string, defaultValue?: boolean): boolean {
   const value = process.env[key];
   if (value === undefined) {
@@ -84,10 +113,11 @@ function getEnvBoolean(key: string, defaultValue?: boolean): boolean {
 }
 
 export function loadConfig(): AppConfig {
+  const nodeEnv = getEnv('NODE_ENV', 'development');
   return {
     server: {
       port: getEnvNumber('PORT', 3000),
-      nodeEnv: getEnv('NODE_ENV', 'development'),
+      nodeEnv,
     },
     aws: {
       region: getEnv('AWS_REGION', 'us-east-1'),
@@ -115,6 +145,12 @@ export function loadConfig(): AppConfig {
     features: {
       enableOcrFallback: getEnvBoolean('ENABLE_OCR_FALLBACK', true),
       maxReceiptsPerMonth: getEnvNumber('MAX_RECEIPTS_PER_MONTH', 50),
+    },
+    storage: {
+      backend: getEnvEnum('STORAGE_BACKEND', ['memory', 'dynamodb'] as const, 'memory'),
+    },
+    auth: {
+      devHeaderEnabled: devAuthHeaderEnabled(nodeEnv),
     },
   };
 }

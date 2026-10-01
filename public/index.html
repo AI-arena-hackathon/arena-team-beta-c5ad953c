@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Auto-Expense Capture Assistant</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="masthead">
+      <h1>Auto-Expense Capture Assistant</h1>
+      <p class="tagline">Receipts in, clean searchable expense records out — no manual entry.</p>
+      <div class="status-row">
+        <span id="health" class="pill pill-idle">checking health…</span>
+        <span id="usage" class="pill pill-idle">usage …</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="card">
+        <h2>1 · Capture a receipt</h2>
+        <form id="capture-form">
+          <label for="user-id">User id (dev identity)</label>
+          <input id="user-id" name="userId" value="user_demo" autocomplete="off" required />
+
+          <label for="receipt-image">Receipt photo</label>
+          <input id="receipt-image" name="image" type="file" accept="image/jpeg,image/png,image/webp,image/heic" />
+
+          <button type="submit" id="capture-button">Reserve receipt &amp; get upload URL</button>
+        </form>
+        <p id="capture-result" class="result" role="status"></p>
+      </section>
+
+      <section class="card">
+        <h2>2 · Confirm the upload</h2>
+        <p class="hint">
+          In the shipped pipeline the client PUTs the photo straight to S3 with the presigned URL, then
+          confirms here so the OCR pipeline can start.
+        </p>
+        <button type="button" id="complete-button" disabled>Confirm upload</button>
+        <p id="complete-result" class="result" role="status"></p>
+      </section>
+
+      <section class="card">
+        <h2>3 · Expense records</h2>
+        <div class="toolbar">
+          <label for="status-filter">Status</label>
+          <select id="status-filter">
+            <option value="">all</option>
+            <option value="pending">pending</option>
+            <option value="processing">processing</option>
+            <option value="completed">completed</option>
+            <option value="failed">failed</option>
+            <option value="archived">archived</option>
+          </select>
+          <button type="button" id="refresh-button">Refresh</button>
+        </div>
+        <p id="list-result" class="result" role="status"></p>
+        <table id="receipts">
+          <thead>
+            <tr>
+              <th>Receipt</th>
+              <th>Status</th>
+              <th>Images</th>
+              <th>Captured</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

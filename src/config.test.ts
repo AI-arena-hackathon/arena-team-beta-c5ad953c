@@ -35,6 +35,8 @@ describe('Configuration Module', () => {
       cognito: { userPoolId: 'us-east-1_testPool', clientId: 'test-client-id', region: 'us-east-1' },
       textract: { enabled: true, region: 'us-east-1' },
       features: { enableOcrFallback: true, maxReceiptsPerMonth: 50 },
+      storage: { backend: 'memory' },
+      auth: { devHeaderEnabled: true },
     });
   });
 
@@ -172,5 +174,57 @@ describe('Configuration Module', () => {
 
     const config = loadConfig();
     expect(config.dynamodb.endpoint).toBeUndefined();
+  });
+  it('should default the receipt store to the in-memory backend', () => {
+    setMinimalEnv();
+    delete process.env.STORAGE_BACKEND;
+
+    expect(loadConfig().storage.backend).toBe('memory');
+  });
+
+  it('should accept STORAGE_BACKEND=dynamodb', () => {
+    setMinimalEnv();
+    process.env.STORAGE_BACKEND = 'dynamodb';
+
+    expect(loadConfig().storage.backend).toBe('dynamodb');
+  });
+
+  it('should reject an unknown STORAGE_BACKEND', () => {
+    setMinimalEnv();
+    process.env.STORAGE_BACKEND = 'sqlite';
+
+    expect(() => loadConfig()).toThrow(/STORAGE_BACKEND/);
+  });
+
+  it('should enable the dev identity header outside production', () => {
+    setMinimalEnv();
+    process.env.NODE_ENV = 'development';
+    delete process.env.DEV_AUTH_HEADER_ENABLED;
+
+    expect(loadConfig().auth.devHeaderEnabled).toBe(true);
+  });
+
+  it('should disable the dev identity header in production by default', () => {
+    setMinimalEnv();
+    process.env.NODE_ENV = 'production';
+    delete process.env.DEV_AUTH_HEADER_ENABLED;
+
+    expect(loadConfig().auth.devHeaderEnabled).toBe(false);
+  });
+
+  it('should never enable the dev identity header in production, even when forced', () => {
+    setMinimalEnv();
+    process.env.NODE_ENV = 'production';
+    process.env.DEV_AUTH_HEADER_ENABLED = 'true';
+
+    expect(loadConfig().auth.devHeaderEnabled).toBe(false);
+  });
+
+  it('should let DEV_AUTH_HEADER_ENABLED=false disable the header outside production', () => {
+    setMinimalEnv();
+    process.env.NODE_ENV = 'development';
+    process.env.DEV_AUTH_HEADER_ENABLED = 'false';
+
+    expect(loadConfig().auth.devHeaderEnabled).toBe(false);
   });
 });

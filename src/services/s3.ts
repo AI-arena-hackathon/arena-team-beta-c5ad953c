@@ -1,6 +1,7 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { getConfig } from '../config';
+import { isSupportedReceiptImageType } from '../types/receipt';
 
 export class S3Error extends Error {
   constructor(
@@ -93,14 +94,16 @@ export function generateReceiptImageKey(input: UploadReceiptImageInput): string 
 }
 
 export function validateContentType(contentType: string): boolean {
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
-  return allowedTypes.includes(contentType);
+  return isSupportedReceiptImageType(contentType);
 }
 
 export function validateFileName(fileName: string): boolean {
   if (!fileName || fileName.length > 255) return false;
-  const invalidChars = /[<>:"|?*\x00-\x1f]/;
-  return !invalidChars.test(fileName);
+  if (/[<>:"|?*]/.test(fileName)) return false;
+  for (let index = 0; index < fileName.length; index += 1) {
+    if (fileName.charCodeAt(index) < 0x20 || fileName.charCodeAt(index) === 0x7f) return false;
+  }
+  return true;
 }
 
 export function isSafePathSegment(segment: string): boolean {
