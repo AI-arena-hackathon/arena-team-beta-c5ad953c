@@ -5,8 +5,8 @@ export interface ServerConfig {
 
 export interface AwsConfig {
   region: string;
-  accessKeyId: string;
-  secretAccessKey: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
 }
 
 export interface DynamoDbConfig {
@@ -16,13 +16,13 @@ export interface DynamoDbConfig {
 }
 
 export interface S3Config {
-  bucketReceipts: string;
+  bucketReceipts?: string;
   presignedUrlExpiry: number;
 }
 
 export interface CognitoConfig {
-  userPoolId: string;
-  clientId: string;
+  userPoolId?: string;
+  clientId?: string;
   region: string;
 }
 
@@ -34,6 +34,10 @@ export interface TextractConfig {
 export interface FeatureFlags {
   enableOcrFallback: boolean;
   maxReceiptsPerMonth: number;
+}
+
+export interface UploadsConfig {
+  signer: 's3' | 'memory';
 }
 
 export interface StorageConfig {
@@ -53,7 +57,12 @@ export interface AppConfig {
   textract: TextractConfig;
   features: FeatureFlags;
   storage: StorageConfig;
+  uploads: UploadsConfig;
   auth: AuthConfig;
+}
+
+function emptyToUndefined(value: string): string | undefined {
+  return value === '' ? undefined : value;
 }
 
 function getEnv(key: string, defaultValue?: string): string {
@@ -112,8 +121,28 @@ function getEnvBoolean(key: string, defaultValue?: boolean): boolean {
   return value.toLowerCase() === 'true';
 }
 
+/**
+ * Static credentials for the AWS SDK, or `undefined` so the SDK falls back to its
+ * own resolution chain (env vars, shared config, instance/task role) — which is
+ * what runs in Lambda.
+ */
+export function awsCredentials(config: AppConfig): { accessKeyId: string; secretAccessKey: string } | undefined {
+  const { accessKeyId, secretAccessKey } = config.aws;
+  if (!accessKeyId || !secretAccessKey) return undefined;
+  return { accessKeyId, secretAccessKey };
+}
+
 export function loadConfig(): AppConfig {
   const nodeEnv = getEnv('NODE_ENV', 'development');
+  const storageBackend = getEnvEnum('STORAGE_BACKEND', ['memory', 'dynamodb'] as const, 'memory');
+  const requiresAwsCredentials = storageBackend === 'dynamodb';
+  const signer = getEnvEnum(
+    'UPLOAD_SIGNER',
+    ['s3', 'memory'] as const,
+    storageBackend === 'memory' ? 'memory' : 's3'
+  );
+  const accessKeyId = getEnv('AWS_ACCESS_KEY_ID', requiresAwsCredentials ? undefined : '');
+  const secretAccessKey = getEnv('AWS_SECRET_ACCESS_KEY', requiresAwsCredentials ? undefined : '');
   return {
     server: {
       port: getEnvNumber('PORT', 3000),
@@ -121,8 +150,8 @@ export function loadConfig(): AppConfig {
     },
     aws: {
       region: getEnv('AWS_REGION', 'us-east-1'),
-      accessKeyId: getEnv('AWS_ACCESS_KEY_ID'),
-      secretAccessKey: getEnv('AWS_SECRET_ACCESS_KEY'),
+      accessKeyId: emptyToUndefined(accessKeyId),
+      secretAccessKey: emptyToUndefined(secretAccessKey),
     },
     dynamodb: {
       tableReceipts: getEnv('DYNAMODB_TABLE_RECEIPTS', 'receipts'),
@@ -130,12 +159,12 @@ export function loadConfig(): AppConfig {
       endpoint: process.env.DYNAMODB_ENDPOINT,
     },
     s3: {
-      bucketReceipts: getEnv('S3_BUCKET_RECEIPTS'),
+      bucketReceipts: emptyToUndefined(getEnv('S3_BUCKET_RECEIPTS', '')),
       presignedUrlExpiry: getEnvNumber('S3_PRESIGNED_URL_EXPIRY', 3600),
     },
     cognito: {
-      userPoolId: getEnv('COGNITO_USER_POOL_ID'),
-      clientId: getEnv('COGNITO_CLIENT_ID'),
+      userPoolId: emptyToUndefined(getEnv('COGNITO_USER_POOL_ID', '')),
+      clientId: emptyToUndefined(getEnv('COGNITO_CLIENT_ID', '')),
       region: getEnv('COGNITO_REGION', 'us-east-1'),
     },
     textract: {
@@ -147,7 +176,10 @@ export function loadConfig(): AppConfig {
       maxReceiptsPerMonth: getEnvNumber('MAX_RECEIPTS_PER_MONTH', 50),
     },
     storage: {
-      backend: getEnvEnum('STORAGE_BACKEND', ['memory', 'dynamodb'] as const, 'memory'),
+      backend: storageBackend,
+    },
+    uploads: {
+      signer,
     },
     auth: {
       devHeaderEnabled: devAuthHeaderEnabled(nodeEnv),

@@ -2,6 +2,8 @@ import request from 'supertest';
 import express, { type Express } from 'express';
 import { createApp, type AppDeps } from './app';
 import { createMemoryStore, type ReceiptStore } from './services/store';
+import { createMemoryImageStore, type ImageStore } from './services/object-store';
+import { createMemoryUploadSigner } from './services/uploads';
 
 function createFakeSigner() {
   return {
@@ -324,5 +326,117 @@ describe('app factory defaults', () => {
       res.json({ status: 'ok' });
     });
     expect(fake).toBeDefined();
+  });
+});
+
+describe('local upload endpoint (UPLOAD_SIGNER=memory)', () => {
+  it('walks the whole capture flow: reserve, PUT bytes, confirm', async () => {
+    const store = createMemoryStore();
+    const images = createMemoryImageStore();
+    const { app } = createTestApp({
+      store,
+      imageStore: images,
+      uploadSigner: createMemoryUploadSigner(images),
+    });
+    const bytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
+
+    const created = await request(app)
+      .post('/api/receipts')
+      .set('x-user-id', 'user_123')
+      .send({ image: { fileName: 'lunch.jpg', contentType: 'image/jpeg', size: bytes.length } })
+      .expect(201);
+
+    const uploadUrl: string = created.body.upload.uploadUrl;
+    await request(app).put(uploadUrl).set('x-user-id', 'user_123').set('content-type', 'image/jpeg').send(bytes).expect(201);
+    await request(app)
+      .post(`/api/receipts/${created.body.receipt.receiptId}/complete`)
+      .set('x-user-id', 'user_123')
+      .expect(200);
+
+    const stored = await images.get(uploadUrl.split('/').pop() as string);
+    expect(stored).toEqual(bytes);
+    const list = await request(app).get('/api/receipts').set('x-user-id', 'user_123').expect(200);
+    expect(list.body.receipts[0].status).toBe('processing');
+  });
+
+  it('serves the stored bytes back for the owning user', async () => {
+    const images = createMemoryImageStore();
+    const { app } = createTestApp({ imageStore: images, uploadSigner: createMemoryUploadSigner(images) });
+    const bytes = Buffer.from('receipt-bytes');
+    const grant = await createMemoryUploadSigner(images).createUploadUrl({
+      userId: 'user_123',
+      receiptId: 'rcpt_1',
+      contentType: 'image/jpeg',
+      fileName: 'a.jpg',
+    });
+    await images.put(grant.uploadUrl.split('/').pop() as string, 'image/jpeg', bytes);
+
+    const response = await request(app).get(grant.uploadUrl).set('x-user-id', 'user_123').expect(200);
+
+    expect(response.body).toMatchObject({ contentType: 'image/jpeg', size: bytes.length });
+    expect(response.body.owner).toEqual({ userId: 'user_123', receiptId: 'rcpt_1' });
+  });
+
+  it('refuses a PUT with a non-image content type', async () => {
+    const images = createMemoryImageStore();
+    const { app } = createTestApp({ imageStore: images, uploadSigner: createMemoryUploadSigner(images) });
+    const grant = await createMemoryUploadSigner(images).createUploadUrl({
+      userId: 'user_123',
+      receiptId: 'rcpt_1',
+      contentType: 'image/jpeg',
+      fileName: 'a.jpg',
+    });
+
+    await request(app)
+      .put(grant.uploadUrl)
+      .set('x-user-id', 'user_123')
+      .set('content-type', 'application/pdf')
+      .send(Buffer.from('x'))
+      .expect(400);
+  });
+
+  it('refuses an empty PUT body', async () => {
+    const images = createMemoryImageStore();
+    const { app } = createTestApp({ imageStore: images, uploadSigner: createMemoryUploadSigner(images) });
+    const grant = await createMemoryUploadSigner(images).createUploadUrl({
+      userId: 'user_123',
+      receiptId: 'rcpt_1',
+      contentType: 'image/jpeg',
+      fileName: 'a.jpg',
+    });
+
+    await request(app)
+      .put(grant.uploadUrl)
+      .set('x-user-id', 'user_123')
+      .set('content-type', 'image/jpeg')
+      .send(Buffer.alloc(0))
+      .expect(400);
+  });
+
+  it('rejects an unknown upload token', async () => {
+    const images = createMemoryImageStore();
+    const { app } = createTestApp({ imageStore: images, uploadSigner: createMemoryUploadSigner(images) });
+
+    await request(app)
+      .put('/api/uploads/deadbeefdeadbeef')
+      .set('x-user-id', 'user_123')
+      .set('content-type', 'image/jpeg')
+      .send(Buffer.from('x'))
+      .expect(404);
+  });
+
+  it('hides another user upload token behind a 404', async () => {
+    const images = createMemoryImageStore();
+    const { app } = createTestApp({ imageStore: images, uploadSigner: createMemoryUploadSigner(images) });
+    const grant = await createMemoryUploadSigner(images).createUploadUrl({
+      userId: 'user_123',
+      receiptId: 'rcpt_1',
+      contentType: 'image/jpeg',
+      fileName: 'a.jpg',
+    });
+
+    const response = await request(app).get(grant.uploadUrl).set('x-user-id', 'user_other').expect(404);
+
+    expect(response.body.error.code).toBe('OBJECT_NOT_FOUND');
   });
 });

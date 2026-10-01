@@ -10,7 +10,7 @@ import {
   type QueryCommandInput,
   type ScanCommandInput,
 } from '@aws-sdk/lib-dynamodb';
-import { getConfig } from '../config';
+import { awsCredentials, getConfig } from '../config';
 import {
   type Receipt,
   type CreateReceiptInput,
@@ -61,10 +61,7 @@ function getDocumentClient(): DynamoDBDocumentClient {
     const config = getConfig();
     const client = new DynamoDBClient({
       region: config.aws.region,
-      credentials: {
-        accessKeyId: config.aws.accessKeyId,
-        secretAccessKey: config.aws.secretAccessKey,
-      },
+      credentials: awsCredentials(config),
       endpoint: config.dynamodb.endpoint,
     });
     documentClient = DynamoDBDocumentClient.from(client, {

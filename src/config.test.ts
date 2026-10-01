@@ -1,4 +1,4 @@
-import { loadConfig } from './config';
+import { awsCredentials, loadConfig } from './config';
 
 describe('Configuration Module', () => {
   const originalEnv = process.env;
@@ -36,6 +36,7 @@ describe('Configuration Module', () => {
       textract: { enabled: true, region: 'us-east-1' },
       features: { enableOcrFallback: true, maxReceiptsPerMonth: 50 },
       storage: { backend: 'memory' },
+      uploads: { signer: 'memory' },
       auth: { devHeaderEnabled: true },
     });
   });
@@ -63,39 +64,41 @@ describe('Configuration Module', () => {
     expect(config.features.maxReceiptsPerMonth).toBe(50);
   });
 
-  it('should throw on missing required AWS_ACCESS_KEY_ID', () => {
+  it('should throw on missing required AWS_ACCESS_KEY_ID when DynamoDB is the backend', () => {
     setMinimalEnv();
     delete process.env.AWS_ACCESS_KEY_ID;
+    process.env.STORAGE_BACKEND = 'dynamodb';
 
     expect(() => loadConfig()).toThrow('Missing required environment variable: AWS_ACCESS_KEY_ID');
   });
 
-  it('should throw on missing required AWS_SECRET_ACCESS_KEY', () => {
+  it('should throw on missing required AWS_SECRET_ACCESS_KEY when DynamoDB is the backend', () => {
     setMinimalEnv();
     delete process.env.AWS_SECRET_ACCESS_KEY;
+    process.env.STORAGE_BACKEND = 'dynamodb';
 
     expect(() => loadConfig()).toThrow('Missing required environment variable: AWS_SECRET_ACCESS_KEY');
   });
 
-  it('should throw on missing required S3_BUCKET_RECEIPTS', () => {
+  it('should read S3_BUCKET_RECEIPTS when it is set', () => {
     setMinimalEnv();
-    delete process.env.S3_BUCKET_RECEIPTS;
+    process.env.S3_BUCKET_RECEIPTS = 'receipts-bucket';
 
-    expect(() => loadConfig()).toThrow('Missing required environment variable: S3_BUCKET_RECEIPTS');
+    expect(loadConfig().s3.bucketReceipts).toBe('receipts-bucket');
   });
 
-  it('should throw on missing required COGNITO_USER_POOL_ID', () => {
+  it('should read COGNITO_USER_POOL_ID when it is set', () => {
     setMinimalEnv();
-    delete process.env.COGNITO_USER_POOL_ID;
+    process.env.COGNITO_USER_POOL_ID = 'eu-west-1_pool';
 
-    expect(() => loadConfig()).toThrow('Missing required environment variable: COGNITO_USER_POOL_ID');
+    expect(loadConfig().cognito.userPoolId).toBe('eu-west-1_pool');
   });
 
-  it('should throw on missing required COGNITO_CLIENT_ID', () => {
+  it('should read COGNITO_CLIENT_ID when it is set', () => {
     setMinimalEnv();
-    delete process.env.COGNITO_CLIENT_ID;
+    process.env.COGNITO_CLIENT_ID = 'another-client';
 
-    expect(() => loadConfig()).toThrow('Missing required environment variable: COGNITO_CLIENT_ID');
+    expect(loadConfig().cognito.clientId).toBe('another-client');
   });
 
   it('should parse PORT as number', () => {
@@ -226,5 +229,97 @@ describe('Configuration Module', () => {
     process.env.DEV_AUTH_HEADER_ENABLED = 'false';
 
     expect(loadConfig().auth.devHeaderEnabled).toBe(false);
+  });
+  it('should allow missing AWS credentials when the in-memory store is used', () => {
+    setMinimalEnv();
+    delete process.env.AWS_ACCESS_KEY_ID;
+    delete process.env.AWS_SECRET_ACCESS_KEY;
+
+    const config = loadConfig();
+
+    expect(config.aws.accessKeyId).toBeUndefined();
+    expect(config.aws.secretAccessKey).toBeUndefined();
+  });
+
+  it('should require AWS credentials when the DynamoDB backend is selected', () => {
+    setMinimalEnv();
+    delete process.env.AWS_ACCESS_KEY_ID;
+    delete process.env.AWS_SECRET_ACCESS_KEY;
+    process.env.STORAGE_BACKEND = 'dynamodb';
+
+    expect(() => loadConfig()).toThrow(/AWS_ACCESS_KEY_ID/);
+  });
+
+  it('should require the secret key too when the DynamoDB backend is selected', () => {
+    setMinimalEnv();
+    delete process.env.AWS_SECRET_ACCESS_KEY;
+    process.env.STORAGE_BACKEND = 'dynamodb';
+
+    expect(() => loadConfig()).toThrow(/AWS_SECRET_ACCESS_KEY/);
+  });
+
+  it('should require an access key id when the secret key is present', () => {
+    setMinimalEnv();
+    delete process.env.AWS_ACCESS_KEY_ID;
+    process.env.STORAGE_BACKEND = 'dynamodb';
+
+    expect(() => loadConfig()).toThrow(/AWS_ACCESS_KEY_ID/);
+  });
+
+  it('should expose awsCredentials only when both keys are configured', () => {
+    setMinimalEnv();
+    delete process.env.AWS_ACCESS_KEY_ID;
+    delete process.env.AWS_SECRET_ACCESS_KEY;
+
+    expect(awsCredentials(loadConfig())).toBeUndefined();
+
+    process.env.AWS_ACCESS_KEY_ID = 'test-access-key';
+    process.env.AWS_SECRET_ACCESS_KEY = 'test-secret-key';
+
+    expect(awsCredentials(loadConfig())).toEqual({
+      accessKeyId: 'test-access-key',
+      secretAccessKey: 'test-secret-key',
+    });
+  });
+  it('should leave the S3 bucket and Cognito ids undefined when unset', () => {
+    setMinimalEnv();
+    delete process.env.S3_BUCKET_RECEIPTS;
+    delete process.env.COGNITO_USER_POOL_ID;
+    delete process.env.COGNITO_CLIENT_ID;
+
+    const config = loadConfig();
+
+    expect(config.s3.bucketReceipts).toBeUndefined();
+    expect(config.cognito.userPoolId).toBeUndefined();
+    expect(config.cognito.clientId).toBeUndefined();
+  });
+  it('should default the upload signer to memory when storage is memory', () => {
+    setMinimalEnv();
+    delete process.env.UPLOAD_SIGNER;
+    process.env.STORAGE_BACKEND = 'memory';
+
+    expect(loadConfig().uploads.signer).toBe('memory');
+  });
+
+  it('should default the upload signer to s3 when storage is dynamodb', () => {
+    setMinimalEnv();
+    delete process.env.UPLOAD_SIGNER;
+    process.env.STORAGE_BACKEND = 'dynamodb';
+
+    expect(loadConfig().uploads.signer).toBe('s3');
+  });
+
+  it('should accept an explicit UPLOAD_SIGNER override', () => {
+    setMinimalEnv();
+    process.env.UPLOAD_SIGNER = 's3';
+
+    expect(loadConfig().uploads.signer).toBe('s3');
+  });
+
+  it('should reject an unknown UPLOAD_SIGNER', () => {
+    setMinimalEnv();
+    process.env.UPLOAD_SIGNER = 'gcs';
+
+    expect(() => loadConfig()).toThrow(/UPLOAD_SIGNER/);
   });
 });

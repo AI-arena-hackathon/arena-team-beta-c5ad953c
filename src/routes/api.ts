@@ -11,6 +11,7 @@ import {
 } from '../services/capture';
 import { RECEIPT_STATUS_VALUES, type ReceiptQueryFilters } from '../types/receipt';
 import type { IdentityResolver } from '../middleware/identity';
+import type { ImageStore } from '../services/object-store';
 
 export const MAX_PAGE_SIZE = 200;
 
@@ -18,6 +19,7 @@ export interface ApiRouterOptions extends CaptureDeps {
   identityResolver: IdentityResolver;
   ocrFallbackEnabled?: boolean;
   textractEnabled?: boolean;
+  imageStore?: ImageStore;
 }
 
 function parseLimit(raw: unknown): number {
@@ -111,6 +113,45 @@ export function createApiRouter(options: ApiRouterOptions): Router {
     }
     res.json({ receipt });
   }));
+
+  if (options.imageStore) {
+    const imageStore = options.imageStore;
+
+    const assertTokenOwner = async (token: string, userId: string): Promise<void> => {
+      const owner = await imageStore.ownerOf(token);
+      if (!owner || owner.userId !== userId) {
+        throw new CaptureError(`Upload not found: ${token}`, 'OBJECT_NOT_FOUND', 404);
+      }
+    };
+
+    router.put(
+      '/api/uploads/:token',
+      asyncHandler(async (req, res) => {
+        const userId = identityResolver(req);
+        const token = req.params.token;
+        await assertTokenOwner(token, userId);
+        const contentType = req.header('content-type') ?? '';
+        const body = req.body as Buffer;
+        const stored = await imageStore.put(token, contentType.split(';')[0].trim(), body);
+        res.status(201).json(stored);
+      })
+    );
+
+    router.get(
+      '/api/uploads/:token',
+      asyncHandler(async (req, res) => {
+        const userId = identityResolver(req);
+        const token = req.params.token;
+        await assertTokenOwner(token, userId);
+        const stat = await imageStore.stat(token);
+        if (!stat) {
+          throw new CaptureError(`Upload not found: ${token}`, 'OBJECT_NOT_FOUND', 404);
+        }
+        const owner = await imageStore.ownerOf(token);
+        res.json({ ...stat, owner });
+      })
+    );
+  }
 
   router.get('/api/usage', asyncHandler(async (req, res) => {
     const userId = identityResolver(req);

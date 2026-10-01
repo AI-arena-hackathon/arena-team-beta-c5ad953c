@@ -8,9 +8,11 @@ import { DEFAULT_MONTHLY_LIMIT } from './services/capture';
 import { createMemoryStore, type ReceiptStore } from './services/store';
 import type { UploadSigner } from './services/capture';
 import { createS3UploadSigner } from './services/uploads';
+import { createMemoryImageStore, type ImageStore } from './services/object-store';
 
 export interface AppDeps {
   store?: ReceiptStore;
+  imageStore?: ImageStore;
   uploadSigner?: UploadSigner;
   monthlyLimit?: number;
   identityResolver?: IdentityResolver;
@@ -30,6 +32,7 @@ export function createApp(deps: AppDeps = {}): Express {
   app.disable('x-powered-by');
   app.use(cors());
   app.use(express.json({ limit: '256kb' }));
+  app.use('/api/uploads', express.raw({ type: () => true, limit: '10mb' }));
 
   if (deps.serveUi !== false) {
     app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -43,6 +46,7 @@ export function createApp(deps: AppDeps = {}): Express {
       identityResolver: deps.identityResolver ?? devHeaderIdentityResolver,
       ocrFallbackEnabled: deps.ocrFallbackEnabled,
       textractEnabled: deps.textractEnabled,
+      imageStore: deps.imageStore,
     })
   );
 

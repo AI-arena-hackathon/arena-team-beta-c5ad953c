@@ -99,6 +99,23 @@ function renderRows(receipts) {
   });
 }
 
+/**
+ * Step 2 of the capture flow. With UPLOAD_SIGNER=memory the signed URL points at
+ * this app, so the browser performs the PUT; with UPLOAD_SIGNER=s3 it points at
+ * S3 and the same code sends the bytes straight there.
+ */
+async function uploadImage(upload, file) {
+  const target = upload.uploadUrl.startsWith('/') ? upload.uploadUrl : new URL(upload.uploadUrl).pathname;
+  const response = await fetch(target, {
+    method: upload.method || 'PUT',
+    headers: { ...upload.headers, 'x-user-id': els.userId.value.trim() },
+    body: file,
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw (body && body.error) || new Error(`upload failed (${response.status})`);
+  return body;
+}
+
 els.captureForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const file = els.image.files && els.image.files[0];
@@ -124,9 +141,10 @@ els.captureForm.addEventListener('submit', async (event) => {
     if (!response.ok) throw body.error || new Error('capture failed');
     pendingReceiptId = body.receipt.receiptId;
     els.completeButton.disabled = false;
+    const uploaded = await uploadImage(body.upload, file);
     els.captureResult.textContent =
-      `Reserved ${body.receipt.receiptId} (status ${body.receipt.status}). ` +
-      `PUT the photo to ${body.upload.key} within ${body.upload.expiresIn}s.`;
+      `Reserved ${body.receipt.receiptId} (status ${body.receipt.status}) and uploaded ` +
+      `${uploaded.size} bytes to ${body.upload.key}.`;
     els.captureResult.className = 'result ok';
   } catch (error) {
     els.captureResult.textContent = describeError(error);

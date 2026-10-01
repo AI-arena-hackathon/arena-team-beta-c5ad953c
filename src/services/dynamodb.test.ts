@@ -77,6 +77,11 @@ jest.mock('@aws-sdk/lib-dynamodb', () => ({
 }));
 
 jest.mock('../config', () => ({
+  awsCredentials: jest.fn((config: { aws: { accessKeyId?: string; secretAccessKey?: string } }) =>
+    config.aws.accessKeyId && config.aws.secretAccessKey
+      ? { accessKeyId: config.aws.accessKeyId, secretAccessKey: config.aws.secretAccessKey }
+      : undefined
+  ),
   getConfig: jest.fn(() => ({
     aws: {
       region: 'us-east-1',

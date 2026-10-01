@@ -34,6 +34,11 @@ jest.mock('@aws-sdk/s3-request-presigner', () => ({
 }));
 
 jest.mock('../config', () => ({
+  awsCredentials: jest.fn((config: { aws: { accessKeyId?: string; secretAccessKey?: string } }) =>
+    config.aws.accessKeyId && config.aws.secretAccessKey
+      ? { accessKeyId: config.aws.accessKeyId, secretAccessKey: config.aws.secretAccessKey }
+      : undefined
+  ),
   getConfig: jest.fn(() => ({
     aws: {
       region: 'us-east-1',
@@ -48,6 +53,7 @@ jest.mock('../config', () => ({
 }));
 
 import * as s3Module from './s3';
+import { getConfig } from '../config';
 
 describe('S3 Wrapper', () => {
   beforeEach(() => {
@@ -328,6 +334,30 @@ describe('S3 Wrapper', () => {
       expect(error.code).toBe('VALIDATION_ERROR');
       expect(error.statusCode).toBe(400);
       expect(error.name).toBe('S3ValidationError');
+    });
+  });
+  describe('missing bucket configuration', () => {
+    it('should throw a clear S3Error when S3_BUCKET_RECEIPTS is not configured', async () => {
+      (getConfig as jest.Mock).mockReturnValueOnce({
+        aws: { region: 'us-east-1' },
+        s3: { bucketReceipts: undefined, presignedUrlExpiry: 3600 },
+      });
+
+      await expect(s3Module.createPresignedUploadUrl(validUploadInput)).rejects.toMatchObject({
+        name: 'S3Error',
+        code: 'BUCKET_NOT_CONFIGURED',
+      });
+    });
+
+    it('should throw a clear S3Error when signing a download without a bucket', async () => {
+      (getConfig as jest.Mock).mockReturnValueOnce({
+        aws: { region: 'us-east-1' },
+        s3: { bucketReceipts: undefined, presignedUrlExpiry: 3600 },
+      });
+
+      await expect(s3Module.createPresignedDownloadUrl(validDownloadInput)).rejects.toMatchObject({
+        code: 'BUCKET_NOT_CONFIGURED',
+      });
     });
   });
 });

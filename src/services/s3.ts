@@ -1,6 +1,6 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { getConfig } from '../config';
+import { awsCredentials, getConfig } from '../config';
 import { isSupportedReceiptImageType } from '../types/receipt';
 
 export class S3Error extends Error {
@@ -35,10 +35,7 @@ function getS3Client(): S3Client {
     const config = getConfig();
     s3Client = new S3Client({
       region: config.aws.region,
-      credentials: {
-        accessKeyId: config.aws.accessKeyId,
-        secretAccessKey: config.aws.secretAccessKey,
-      },
+      credentials: awsCredentials(config),
     });
   }
   return s3Client;
@@ -49,7 +46,15 @@ export function resetS3Client(): void {
 }
 
 function getBucketName(): string {
-  return getConfig().s3.bucketReceipts;
+  const bucket = getConfig().s3.bucketReceipts;
+  if (!bucket) {
+    throw new S3Error(
+      'S3_BUCKET_RECEIPTS is not configured — set it to enable image uploads',
+      'BUCKET_NOT_CONFIGURED',
+      503
+    );
+  }
+  return bucket;
 }
 
 function getPresignedUrlExpiry(): number {
