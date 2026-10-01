@@ -18,6 +18,8 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [x] Update Express app to use configuration module
 - [x] Update README.md with accurate environment variables
 - [x] Add tests for configuration module (17 new tests)
+- [x] Create receipt schema/types with validation (src/types/receipt.ts) - 49 tests
+- [x] Create DynamoDB client wrapper for receipt CRUD operations (src/services/dynamodb.ts) - 40 tests
 
 ## In Progress
 
@@ -34,4 +36,3 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [ ] Add image preprocessing for OCR accuracy (auto-enhance, perspective correction)
 - [ ] Add rate limiting and cost controls (50 receipts/month free tier)
 - [ ] Add S3 client wrapper for presigned URL generation
-- [ ] Add DynamoDB client wrapper for receipt CRUD operations
