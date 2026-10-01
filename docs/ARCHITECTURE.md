@@ -51,6 +51,7 @@ Rules of thumb:
 | `src/services/s3.ts` | presigned URLs, object ops (pre-existing) | AWS |
 | `src/types/receipt.ts` | receipt domain types + validators | — |
 | `public/` | browser capture console (static) | — |
+| `public/format.js`, `public/capture-flow.js` | console view model + capture state machine, UMD-wrapped so jest can require them | tested from `src/ui/` |
 
 ## 3. The capture flow (implemented)
 
@@ -65,11 +66,25 @@ client                        API                            storage
   │ PUT upload.url (S3 presigned, or /api/uploads/:token locally)
   │ POST /api/receipts/:id/complete ──▶ status: processing ─────────
   │ GET /api/receipts ────────────────▶ newest-first list ─────────
+  │ DELETE /api/receipts/:id ─────────▶ drop a `pending` row ───────
 ```
 
 Why reserve-then-upload: the receipt row exists before the bytes do, so a
 half-finished upload leaves a `pending` record rather than a dangling object,
 and the OCR pipeline has something to pick up the moment `complete` lands.
+
+The cost of that design is that a `pending` row holds one of the month's 50
+slots, so it must be reclaimable: `discardPendingUpload` (`src/services/capture.ts`)
+is the only destructive operation in the product, scoped to the caller's own
+receipt, refused once the receipt is confirmed (`409`), and audit-logged on
+success. `public/capture-flow.js` tags each failure with what is recoverable
+(`discardable` before the bytes land, `confirmable` after), and
+`recoveryFor()` turns that tag into the single action the console offers.
+
+The console keeps its decisions out of the DOM: `public/format.js` (view model)
+and `public/capture-flow.js` (capture state machine) are UMD-wrapped plain JS
+required directly by `src/ui/console.test.ts`; `public/app.js` only wires
+elements, `fetch` and `sessionStorage`.
 
 ## 4. Configuration → adapter selection
 

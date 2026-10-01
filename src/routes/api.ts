@@ -4,6 +4,7 @@ import {
   CaptureError,
   captureReceipt,
   completeUpload,
+  discardPendingUpload,
   getMonthlyUsage,
   DEFAULT_MONTHLY_LIMIT,
   type CaptureDeps,
@@ -95,6 +96,12 @@ export function createApiRouter(options: ApiRouterOptions): Router {
     const userId = identityResolver(req);
     const receipt = await completeUpload(req.params.receiptId, userId, deps);
     res.json({ receipt });
+  }));
+
+  router.delete('/api/receipts/:receiptId', asyncHandler(async (req, res) => {
+    const userId = identityResolver(req);
+    const discarded = await discardPendingUpload(req.params.receiptId, userId, deps);
+    res.json({ deleted: true, receiptId: discarded.receiptId });
   }));
 
   router.get('/api/receipts', asyncHandler(async (req, res) => {

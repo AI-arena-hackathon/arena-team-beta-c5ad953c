@@ -44,8 +44,14 @@ end to end — no AWS account required:
    `/api/uploads/:token` locally).
 3. `POST /api/receipts/:id/complete` flips the receipt to `processing`.
 4. `GET /api/receipts` lists the caller's records; `GET /api/usage` shows quota.
+5. `DELETE /api/receipts/:id` discards a receipt that is still `pending` — the
+   one case where a capture can be abandoned — which returns the monthly slot.
 
-`/` serves a browser **capture console** that drives exactly this flow.
+`/` serves a browser **capture console** that drives exactly this flow in one
+click: it checks the file before spending a slot, shows each step, and if the
+upload or the confirm fails it offers the only sensible next move for the bytes
+that actually landed (reclaim the reservation, or repeat the confirm) instead of
+silently burning one of the month's 50 receipts.
 
 Still to build: OCR processing pipeline, CSV export/sync, Cognito auth,
 React Native client. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the
@@ -99,6 +105,8 @@ src/middleware/         identity, JSON error envelope, async error forwarding
 src/services/           domain logic + ports (store, object-store, uploads) and adapters
 src/types/receipt.ts    receipt domain types and validators
 public/                 browser capture console (static, no build step)
+                        app.js wires the DOM, format.js and capture-flow.js
+                        hold the testable decisions (see src/ui/console.test.ts)
 docs/ARCHITECTURE.md    layering rules, module map, capture flow
 ```
 
@@ -187,6 +195,7 @@ that user. Errors share one envelope: `{"error":{"code":"...","message":"..."}}`
 | POST | `/api/receipts/:id/complete` | Confirm bytes landed → status `processing` |
 | GET | `/api/receipts` | List own receipts (`?status=`, `?limit=` ≤ 200) |
 | GET | `/api/receipts/:id` | Fetch one own receipt (`404` for anyone else's) |
+| DELETE | `/api/receipts/:id` | Discard a `pending` receipt and free its monthly slot (`404` unknown/other user, `409` once confirmed) |
 | GET | `/api/usage` | Monthly quota usage and remaining allowance |
 
 Capture example:

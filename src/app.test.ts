@@ -5,6 +5,7 @@ import { createMemoryStore, type ReceiptStore } from './services/store';
 import { createMemoryImageStore, type ImageStore } from './services/object-store';
 import { createMemoryUploadSigner } from './services/uploads';
 import { createFakeSigner, createTestDeps, createJpegBuffer } from './utils/test-helpers';
+import { disabledIdentityResolver } from './middleware/identity';
 
 function createTestApp(overrides: AppDeps = {}): { app: Express; store: ReceiptStore; signer: ReturnType<typeof createFakeSigner> } {
   const store = overrides.store ?? createMemoryStore();
@@ -252,6 +253,114 @@ describe('GET /api/receipts/:receiptId', () => {
   });
 });
 
+describe('DELETE /api/receipts/:receiptId', () => {
+  it('discards a pending upload and frees the monthly slot again', async () => {
+    const { app, store } = createTestApp({ monthlyLimit: 1 });
+    const created = await request(app)
+      .post('/api/receipts')
+      .set('x-user-id', 'user_123')
+      .send({ image: validImage })
+      .expect(201);
+    await request(app).post('/api/receipts').set('x-user-id', 'user_123').send({ image: validImage }).expect(429);
+
+    const response = await request(app)
+      .delete(`/api/receipts/${created.body.receipt.receiptId}`)
+      .set('x-user-id', 'user_123')
+      .expect(200);
+
+    expect(response.body).toEqual({ deleted: true, receiptId: created.body.receipt.receiptId });
+    expect((await store.list({ userId: 'user_123' })).count).toBe(0);
+    await request(app).post('/api/receipts').set('x-user-id', 'user_123').send({ image: validImage }).expect(201);
+  });
+
+  it('refuses with 409 once the receipt has been confirmed', async () => {
+    const { app } = createTestApp();
+    const created = await request(app)
+      .post('/api/receipts')
+      .set('x-user-id', 'user_123')
+      .send({ image: validImage })
+      .expect(201);
+    await request(app)
+      .post(`/api/receipts/${created.body.receipt.receiptId}/complete`)
+      .set('x-user-id', 'user_123')
+      .expect(200);
+
+    const response = await request(app)
+      .delete(`/api/receipts/${created.body.receipt.receiptId}`)
+      .set('x-user-id', 'user_123')
+      .expect(409);
+
+    expect(response.body.error.code).toBe('UPLOAD_NOT_PENDING');
+  });
+
+  it('requires an identity header', async () => {
+    const { app } = createTestApp();
+
+    await request(app).delete('/api/receipts/rcpt_1').expect(401);
+  });
+
+  it('hides another user pending receipt behind a 404', async () => {
+    const { app, store } = createTestApp();
+    const created = await request(app)
+      .post('/api/receipts')
+      .set('x-user-id', 'user_123')
+      .send({ image: validImage })
+      .expect(201);
+
+    await request(app).delete(`/api/receipts/${created.body.receipt.receiptId}`).set('x-user-id', 'user_other').expect(404);
+    expect((await store.list({ userId: 'user_123' })).count).toBe(1);
+  });
+
+  it('answers a repeated delete with 404, so a stale reminder can be dismissed', async () => {
+    const { app } = createTestApp();
+    const created = await request(app)
+      .post('/api/receipts')
+      .set('x-user-id', 'user_123')
+      .send({ image: validImage })
+      .expect(201);
+    await request(app).delete(`/api/receipts/${created.body.receipt.receiptId}`).set('x-user-id', 'user_123').expect(200);
+
+    const response = await request(app)
+      .delete(`/api/receipts/${created.body.receipt.receiptId}`)
+      .set('x-user-id', 'user_123')
+      .expect(404);
+
+    expect(response.body.error.code).toBe('RECEIPT_NOT_FOUND');
+  });
+
+  it('is unreachable at all when the deployment has no identity resolver', async () => {
+    // The reserve call needs a working identity, so the receipt is created on a
+    // normal app and the same store is then mounted without an identity.
+    const { app: openApp, store } = createTestApp();
+    const created = await request(openApp)
+      .post('/api/receipts')
+      .set('x-user-id', 'user_123')
+      .send({ image: validImage })
+      .expect(201);
+    const { app: lockedApp } = createTestApp({ store, identityResolver: disabledIdentityResolver });
+
+    const response = await request(lockedApp)
+      .delete(`/api/receipts/${created.body.receipt.receiptId}`)
+      .set('x-user-id', 'user_123')
+      .expect(401);
+
+    expect(response.body.error.code).toBe('UNAUTHENTICATED');
+    expect((await store.list({ userId: 'user_123' })).count).toBe(1);
+  });
+
+  it('rejects an unsafe receipt id before it reaches the store', async () => {
+    const { app, store } = createTestApp();
+
+    const response = await request(app)
+      .delete('/api/receipts/..%2F..%2Fetc%2Fpasswd')
+      .set('x-user-id', 'user_123')
+      .expect(400);
+
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    expect((await store.list({ userId: 'user_123' })).count).toBe(0);
+  });
+});
+
 describe('GET /api/usage', () => {
   it('reports how much of the free tier is left', async () => {
     const { app } = createTestApp({ monthlyLimit: 2 });
@@ -374,6 +483,38 @@ describe('cors', () => {
       .expect(204);
 
     expect(response.headers['access-control-allow-methods']).toContain('POST');
+  });
+
+  it('allows exactly the methods the API exposes, so a cross-origin client can discard a pending receipt', async () => {
+    const { app } = createTestApp({ corsOrigins: ['https://app.example'] });
+
+    const response = await request(app)
+      .options('/api/receipts/rcpt_1')
+      .set('origin', 'https://app.example')
+      .set('access-control-request-method', 'DELETE')
+      .expect(204);
+
+    expect(String(response.headers['access-control-allow-methods']).split(', ')).toEqual([
+      'GET',
+      'POST',
+      'PUT',
+      'DELETE',
+      'OPTIONS',
+    ]);
+  });
+
+  it('advertises no methods at all when no origins are configured', async () => {
+    const { app } = createTestApp();
+
+    const response = await request(app)
+      .options('/api/receipts/rcpt_1')
+      .set('origin', 'https://evil.example')
+      .set('access-control-request-method', 'DELETE')
+      .expect(200);
+
+    expect(response.headers['access-control-allow-methods']).toBeUndefined();
+    expect(response.headers['access-control-allow-origin']).toBeUndefined();
+    expect(response.headers['access-control-allow-headers']).toBeUndefined();
   });
 });
 

@@ -12,68 +12,110 @@
   </head>
   <body>
     <header class="masthead">
-      <h1>Auto-Expense Capture Assistant</h1>
-      <p class="tagline">Receipts in, clean searchable expense records out — no manual entry.</p>
-      <div class="status-row">
-        <span id="health" class="pill pill-idle">checking health…</span>
-        <span id="usage" class="pill pill-idle">usage …</span>
+      <div class="masthead-inner">
+        <div>
+          <h1>Auto-Expense Capture Assistant</h1>
+          <p class="tagline">Receipts in, clean searchable expense records out — no manual entry.</p>
+        </div>
+        <div class="status-row">
+          <span id="health" class="pill pill-idle">checking health…</span>
+          <span id="usage" class="pill pill-idle">usage …</span>
+        </div>
       </div>
     </header>
 
     <main>
-      <section class="card">
-        <h2>1 · Capture a receipt</h2>
-        <form id="capture-form">
-          <label for="user-id">User id (dev identity)</label>
+      <section class="card card-capture" aria-labelledby="capture-heading">
+        <h2 id="capture-heading">Capture a receipt</h2>
+        <p class="hint">
+          One action: the receipt is reserved, the photo uploaded and queued for extraction. Nothing is
+          recorded until the file passes the checks below.
+        </p>
+
+        <form id="capture-form" novalidate>
+          <label for="user-id">User id <span class="hint-inline">(dev identity — Cognito lands later)</span></label>
           <input id="user-id" name="userId" value="user_demo" autocomplete="off" required />
 
-          <label for="receipt-image">Receipt photo</label>
-          <input id="receipt-image" name="image" type="file" accept="image/jpeg,image/png,image/webp,image/heic" />
+          <label class="label-like" for="receipt-image">Receipt photo</label>
+          <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-describedby="file-help">
+            <input id="receipt-image" name="image" type="file" class="visually-hidden" />
+            <p class="drop-title">Drop a receipt photo here or click to choose a file</p>
+            <p class="drop-sub" id="file-help">JPEG, PNG, WebP or HEIC · up to 10 MB</p>
+          </div>
+          <p id="file-summary" class="file-summary" role="status"></p>
 
-          <button type="submit" id="capture-button">Reserve receipt &amp; get upload URL</button>
+          <button type="submit" id="capture-button">Capture receipt</button>
+          <p id="capture-progress" class="progress" role="status" aria-live="polite"></p>
         </form>
-        <p id="capture-result" class="result" role="status"></p>
-      </section>
 
-      <section class="card">
-        <h2>2 · Confirm the upload</h2>
-        <p class="hint">
-          In the shipped pipeline the client PUTs the photo straight to S3 with the presigned URL, then
-          confirms here so the OCR pipeline can start.
-        </p>
-        <button type="button" id="complete-button" disabled>Confirm upload</button>
-        <p id="complete-result" class="result" role="status"></p>
-      </section>
-
-      <section class="card">
-        <h2>3 · Expense records</h2>
-        <div class="toolbar">
-          <label for="status-filter">Status</label>
-          <select id="status-filter">
-            <option value="">all</option>
-            <option value="pending">pending</option>
-            <option value="processing">processing</option>
-            <option value="completed">completed</option>
-            <option value="failed">failed</option>
-            <option value="archived">archived</option>
-          </select>
-          <button type="button" id="refresh-button">Refresh</button>
+        <div id="capture-error" class="alert" role="alert" hidden>
+          <p id="capture-error-message" class="alert-message"></p>
+          <div class="alert-actions">
+            <button type="button" id="retry-button" class="button-secondary" hidden>Try again</button>
+            <button type="button" id="discard-button" class="button-danger" hidden>
+              Discard pending receipt
+            </button>
+            <button type="button" id="dismiss-error" class="button-ghost">Dismiss</button>
+          </div>
         </div>
-        <p id="list-result" class="result" role="status"></p>
-        <table id="receipts">
-          <thead>
-            <tr>
-              <th>Receipt</th>
-              <th>Status</th>
-              <th>Images</th>
-              <th>Captured</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+
+        <div id="resume-banner" class="banner" role="status" hidden>
+          <p id="resume-message"></p>
+          <div class="alert-actions">
+            <button type="button" id="resume-confirm" class="button-secondary" hidden>Finish that upload</button>
+            <button type="button" id="resume-discard" class="button-danger" hidden>Discard it</button>
+            <button type="button" id="resume-dismiss" class="button-ghost">Ignore</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card card-records" aria-labelledby="records-heading">
+        <h2 id="records-heading">Expense records</h2>
+        <div class="toolbar">
+          <div class="field">
+            <label for="status-filter">Status</label>
+            <select id="status-filter">
+              <option value="">all</option>
+              <option value="pending">awaiting upload</option>
+              <option value="processing">awaiting extraction</option>
+              <option value="completed">ready to export</option>
+              <option value="failed">extraction failed</option>
+              <option value="archived">archived</option>
+            </select>
+          </div>
+          <div class="field field-grow">
+            <label for="search-input">Search</label>
+            <input id="search-input" type="search" placeholder="merchant, id, total, category" autocomplete="off" />
+          </div>
+          <button type="button" id="refresh-button" class="button-secondary">Refresh</button>
+        </div>
+        <p id="list-result" class="result" role="status" aria-live="polite"></p>
+        <div class="table-scroll">
+          <table id="receipts">
+            <thead>
+              <tr>
+                <th scope="col">Merchant</th>
+                <th scope="col">Total</th>
+                <th scope="col">Captured</th>
+                <th scope="col">Status</th>
+                <th scope="col"><span class="visually-hidden">Details</span></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card card-detail" aria-labelledby="detail-heading">
+        <h2 id="detail-heading">Receipt detail</h2>
+        <div id="detail-body">
+          <p class="hint">Select a row above to see the extracted expense record.</p>
+        </div>
       </section>
     </main>
 
+    <script src="/format.js"></script>
+    <script src="/capture-flow.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

@@ -24,6 +24,9 @@ fast path.
    - Persistence or external I/O detail → an adapter (`-store.ts`, `uploads.ts`)
    - Domain shape/validation → `src/types/receipt.ts`
    - Wiring to the environment → `src/index.ts` **only**
+   - Console view logic (labels, filters, pre-flight rules) → `public/format.js`
+   - Console capture sequencing and failure recovery → `public/capture-flow.js`
+   - DOM/`fetch`/`sessionStorage` glue only → `public/app.js`
 3. Add behaviour TDD-style: write the failing test first, run it, then code.
    - Service: `src/services/<name>.test.ts` with a fake port (in-memory store
      or `createFakeSigner`-style object).
@@ -47,6 +50,16 @@ fast path.
   `identityResolver(req)`. Cross-user reads must answer 404, not 403.
 - Tests live beside their module as `<name>.test.ts` and are excluded from
   `tsconfig`/eslint — keep new tests in that shape so lint stays green.
+- Browser modules are classic scripts with no build step: wrap them in the UMD
+  tail used by `public/format.js` (classic scripts share one global scope, so a
+  bare `const api` in two files breaks the page) and require them straight from
+  a test under `src/ui/`. `npm run lint` also runs `node --check` on them.
+- The console's CSP forbids inline handlers and `innerHTML`; write text with
+  `textContent` and build nodes with DOM APIs.
+- Anything that offers a recovery affordance must be reachable: a failure path
+  that records a receipt in `sessionStorage` and shows a button has to keep
+  showing it after the error box is dismissed and after a reload. Test the
+  failure paths in the browser, not just the happy one.
 - The default configuration must keep working with zero external services
   (`STORAGE_BACKEND=memory`, `UPLOAD_SIGNER=memory`). After touching config or
   the composition root, boot the app and run the capture flow once.

@@ -36,7 +36,7 @@ export const securityHeaders: RequestHandler = (_req, res, next) => {
   next();
 };
 
-const ALLOWED_METHODS = 'GET, POST, PUT, OPTIONS';
+const ALLOWED_METHODS = 'GET, POST, PUT, DELETE, OPTIONS';
 const ALLOWED_HEADERS = 'Content-Type, X-User-Id, Authorization';
 
 /**

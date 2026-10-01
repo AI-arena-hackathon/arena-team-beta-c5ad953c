@@ -9,7 +9,7 @@
     "dev": "ts-node src/index.ts",
     "test": "jest --coverage",
     "test:watch": "jest --watch",
-    "lint": "eslint src/**/*.ts"
+    "lint": "eslint src/**/*.ts && node --check public/format.js && node --check public/capture-flow.js && node --check public/app.js"
   },
   "keywords": [
     "expense",

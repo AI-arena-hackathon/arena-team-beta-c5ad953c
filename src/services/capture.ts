@@ -219,6 +219,64 @@ export async function captureReceipt(request: CaptureRequest, deps: CaptureDeps)
 }
 
 /**
+ * Escape hatch for the client: a receipt that never got its bytes (a dropped
+ * connection, a bad photo) is deleted instead of lingering as a `pending` row
+ * that silently eats one of the month's receipts. Only `pending` receipts may
+ * be discarded — once the upload is confirmed the record is real data.
+ */
+export async function discardPendingUpload(
+  receiptId: string,
+  userId: string,
+  deps: CaptureDeps
+): Promise<Receipt> {
+  const safeUserId = assertSafeUserId(userId);
+  validateReceiptId(receiptId, 'receiptId');
+
+  let current: Receipt | null;
+  try {
+    current = await deps.store.get(receiptId, safeUserId);
+  } catch (error) {
+    console.error('Receipt store failed while loading a pending upload for discard:', error);
+    throw new CaptureError('Could not load the pending upload', 'DISCARD_FAILED', 500);
+  }
+  if (!current) {
+    throw new CaptureError(`Receipt not found: ${receiptId}`, 'RECEIPT_NOT_FOUND', 404);
+  }
+  if (current.status !== 'pending') {
+    throw new CaptureError(
+      `Only a pending upload can be discarded (status: ${current.status})`,
+      'UPLOAD_NOT_PENDING',
+      409
+    );
+  }
+
+  let removed: boolean;
+  try {
+    removed = await deps.store.remove(receiptId, safeUserId);
+  } catch (error) {
+    console.error('Receipt store failed while discarding a pending upload:', error);
+    throw new CaptureError('Could not discard the pending upload', 'DISCARD_FAILED', 500);
+  }
+  if (!removed) {
+    // The row vanished between the read and the delete; treat it as a miss
+    // rather than a server fault so the client can stop offering the reclaim.
+    throw new CaptureError(`Receipt not found: ${receiptId}`, 'RECEIPT_NOT_FOUND', 404);
+  }
+
+  // Destructive and identity-scoped: leave a trail even though auth is a dev
+  // placeholder, so the audit exists before real auth does.
+  console.info(
+    JSON.stringify({
+      event: 'receipt.discard',
+      receiptId: current.receiptId,
+      userId: safeUserId,
+      images: current.images.length,
+    })
+  );
+  return current;
+}
+
+/**
  * Step 2 of the capture flow: the client confirms the bytes landed in S3, so the
  * receipt moves to `processing` and the OCR pipeline is free to pick it up.
  */

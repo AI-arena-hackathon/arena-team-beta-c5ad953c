@@ -89,10 +89,8 @@ export function validatePositiveInteger(value: unknown, paramName = 'value', max
 }
 
 export function validateReceiptId(receiptId: unknown, paramName = 'receiptId'): string {
-  if (typeof receiptId !== 'string' || receiptId.length === 0 || receiptId.length > 128) {
-    throw new AppError(`${paramName} is required and must be at most 128 chars`, 'VALIDATION_ERROR', 400);
-  }
-  return receiptId;
+  // Receipt ids are also path segments in the S3 key, so the same rule applies.
+  return validatePathSegment(receiptId, paramName);
 }
 
 export function validateStatus(status: unknown, paramName = 'status'): ReceiptStatus | undefined {

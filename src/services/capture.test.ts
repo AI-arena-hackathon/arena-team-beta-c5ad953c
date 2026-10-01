@@ -1,4 +1,4 @@
-import { captureReceipt, completeUpload, getMonthlyUsage, CaptureError } from './capture';
+import { captureReceipt, completeUpload, discardPendingUpload, getMonthlyUsage, CaptureError } from './capture';
 import { createMemoryStore, type ReceiptStore } from './store';
 import type { Receipt } from '../types/receipt';
 import {
@@ -164,6 +164,99 @@ describe('completeUpload', () => {
     await expect(completeUpload(receipt.receiptId, 'user_other', deps)).rejects.toMatchObject({
       code: 'RECEIPT_NOT_FOUND',
     });
+  });
+});
+
+describe('discardPendingUpload', () => {
+  it('deletes a pending receipt so a failed upload does not consume the monthly quota', async () => {
+    const { store, deps } = createTestDeps();
+    const { receipt: pending } = await captureReceipt(validCaptureRequest, deps);
+
+    await discardPendingUpload(pending.receiptId, 'user_123', deps);
+
+    expect(await store.get(pending.receiptId, 'user_123')).toBeNull();
+    expect((await getMonthlyUsage('user_123', deps)).remaining).toBe(50);
+  });
+
+  it('refuses to discard a receipt that has already moved past pending', async () => {
+    const { store, deps } = createTestDeps();
+    const { receipt: pending } = await captureReceipt(validCaptureRequest, deps);
+    await completeUpload(pending.receiptId, 'user_123', deps);
+
+    await expect(discardPendingUpload(pending.receiptId, 'user_123', deps)).rejects.toMatchObject({
+      code: 'UPLOAD_NOT_PENDING',
+      statusCode: 409,
+    });
+    expect(await store.get(pending.receiptId, 'user_123')).not.toBeNull();
+  });
+
+  it('reports 404 for an unknown receipt and for another user’s receipt', async () => {
+    const { store, deps } = createTestDeps();
+    const { receipt: pending } = await captureReceipt(validCaptureRequest, deps);
+
+    await expect(discardPendingUpload('rcpt_missing', 'user_123', deps)).rejects.toMatchObject({
+      code: 'RECEIPT_NOT_FOUND',
+      statusCode: 404,
+    });
+    await expect(discardPendingUpload(pending.receiptId, 'user_other', deps)).rejects.toMatchObject({
+      code: 'RECEIPT_NOT_FOUND',
+      statusCode: 404,
+    });
+    expect((await store.list({ userId: 'user_123' })).count).toBe(1);
+  });
+
+  it('rejects an unsafe receipt id before touching the store', async () => {
+    const { store, deps } = createTestDeps();
+
+    await expect(discardPendingUpload('../../etc/passwd', 'user_123', deps)).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      statusCode: 400,
+    });
+    expect((await store.list({ userId: 'user_123' })).count).toBe(0);
+  });
+
+  it('returns the discarded receipt so the caller can echo the stored id', async () => {
+    const { deps } = createTestDeps();
+    const { receipt: pending } = await captureReceipt(validCaptureRequest, deps);
+
+    const discarded = await discardPendingUpload(pending.receiptId, 'user_123', deps);
+
+    expect(discarded.receiptId).toBe(pending.receiptId);
+    expect(discarded.status).toBe('pending');
+    expect(discarded.images).toHaveLength(1);
+  });
+
+  it('treats a row that vanished between read and delete as gone, not as a server fault', async () => {
+    const { store, deps: depsBase } = createTestDeps();
+    const { receipt: pending } = await captureReceipt(validCaptureRequest, depsBase);
+    const vanishing: ReceiptStore = { ...store, remove: () => Promise.resolve(false) };
+
+    await expect(
+      discardPendingUpload(pending.receiptId, 'user_123', { ...depsBase, store: vanishing })
+    ).rejects.toMatchObject({ code: 'RECEIPT_NOT_FOUND', statusCode: 404 });
+  });
+
+  it('surfaces a store read failure as a coded 500 rather than a phantom 404', async () => {
+    const { store, deps: depsBase } = createTestDeps();
+    const { receipt: pending } = await captureReceipt(validCaptureRequest, depsBase);
+    const failing: ReceiptStore = {
+      ...store,
+      get: () => Promise.reject(new Error('dynamo unavailable')),
+    };
+
+    await expect(
+      discardPendingUpload(pending.receiptId, 'user_123', { ...depsBase, store: failing })
+    ).rejects.toMatchObject({ code: 'DISCARD_FAILED', statusCode: 500 });
+  });
+
+  it('surfaces a store delete failure as a coded 500 rather than a phantom success', async () => {
+    const { store, deps: depsBase } = createTestDeps();
+    const { receipt: pending } = await captureReceipt(validCaptureRequest, depsBase);
+    const failing: ReceiptStore = { ...store, remove: () => Promise.reject(new Error('dynamo unavailable')) };
+
+    await expect(
+      discardPendingUpload(pending.receiptId, 'user_123', { ...depsBase, store: failing })
+    ).rejects.toMatchObject({ code: 'DISCARD_FAILED', statusCode: 500 });
   });
 });
 

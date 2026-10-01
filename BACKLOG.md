@@ -35,6 +35,8 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [x] Refactor capture.ts to use shared validation utilities
 - [x] Refactor object-store.ts to use shared validation and error utilities
 - [x] Update app.test.ts and capture.test.ts to use shared test helpers
+- [x] One-action capture: pre-flight validation, quota-safe pending recovery, receipt table + detail panel, and `DELETE /api/receipts/:id` to reclaim a stranded slot — 60 tests (41 new), verified in headless Chromium
+- [x] Code + security review pass: honest test interfaces, per-failure retry actions, no unreachable recovery affordance, audit log on discard, exact CORS method list
 
 ## In Progress
 
@@ -45,6 +47,12 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [ ] Upgrade the lint toolchain to eslint 9 + flat config to clear 6 dev-only `minimatch` ReDoS advisories (`npm audit` is clean for runtime deps)
 - [ ] Add per-IP rate limiting on capture endpoints; the monthly free-tier quota exists but there is no request-rate control yet
 - [ ] Validate image magic bytes on upload (content-type allowlist is enforced, bytes are not sniffed yet)
+- [ ] Decide the amount unit: `metadata.total` is unitless in the domain model, so the console prints plain decimals and the currency separately — the OCR pipeline must define whether amounts are major or minor units
+- [ ] Delete the S3 object when a pending upload is discarded (today the reclaim drops the receipt row; a reserved-then-abandoned capture leaves the object behind when bytes had already landed)
+- [ ] Anchor receipt ids to `^rcpt_` in `validateReceiptId` — it is a path segment, and the receipt id is attacker-adjacent
+- [ ] Validate `GET /api/receipts/:id` with the same rule as the other receipt-id paths (it reads the store directly)
+- [ ] Add jsdom coverage for `public/app.js` wiring (`jest-environment-jsdom` is not installed); `recoveryFor` is extracted and unit-tested, the DOM glue is not
+- [ ] Paginate the console table (the API caps a page at 200 and the list summary now admits truncation)
 
 ## Todo
 
