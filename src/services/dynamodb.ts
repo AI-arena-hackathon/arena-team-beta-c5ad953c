@@ -21,14 +21,15 @@ import {
   validateCreateReceiptInput,
   validateUpdateReceiptInput,
 } from '../types/receipt';
+import { AppError } from '../utils/errors';
 
-export class DynamoDBError extends Error {
+export class DynamoDBError extends AppError {
   constructor(
     message: string,
     public readonly code: string,
     public readonly statusCode: number = 500
   ) {
-    super(message);
+    super(message, code, statusCode);
     this.name = 'DynamoDBError';
   }
 }

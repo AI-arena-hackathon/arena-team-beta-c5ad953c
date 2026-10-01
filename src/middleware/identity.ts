@@ -1,10 +1,10 @@
 import type { Request } from 'express';
-import { CaptureError } from '../services/capture';
+import { AppError } from '../utils/errors';
 
 export const USER_ID_HEADER = 'x-user-id';
 const USER_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
-export class UnauthenticatedError extends CaptureError {
+export class UnauthenticatedError extends AppError {
   constructor(message = 'Missing or invalid identity') {
     super(message, 'UNAUTHENTICATED', 401);
     this.name = 'UnauthenticatedError';

@@ -1,8 +1,8 @@
 import { CaptureError } from './capture';
-import { MAX_RECEIPT_IMAGE_BYTES, isSupportedReceiptImageType } from '../types/receipt';
+import { MAX_RECEIPT_IMAGE_BYTES } from '../types/receipt';
+import { validateUploadToken, isValidUploadToken as isValidUploadTokenUtil, validateContentType, validatePositiveNumber } from '../utils/validation';
 
 export const MEMORY_IMAGE_BUCKET = 'memory-images';
-const TOKEN_PATTERN = /^[A-Za-z0-9_-]{4,128}$/;
 
 export class ImageStoreError extends CaptureError {
   constructor(message: string, code: string, statusCode = 400) {
@@ -42,7 +42,7 @@ export interface MemoryImageStoreOptions {
 }
 
 export function isValidUploadToken(token: string): boolean {
-  return typeof token === 'string' && TOKEN_PATTERN.test(token);
+  return isValidUploadTokenUtil(token);
 }
 
 /** In-memory image store: fake for tests, local-dev backend for the capture flow. */
@@ -54,9 +54,7 @@ export function createMemoryImageStore(options: MemoryImageStoreOptions = {}): I
   >();
 
   const assertToken = (token: string): void => {
-    if (!isValidUploadToken(token)) {
-      throw new ImageStoreError('Invalid upload token', 'VALIDATION_ERROR', 400);
-    }
+    validateUploadToken(token);
   };
 
   return {
@@ -76,12 +74,11 @@ export function createMemoryImageStore(options: MemoryImageStoreOptions = {}): I
       // one error path, whether they call this synchronously or await it.
       try {
         assertToken(token);
-        if (!isSupportedReceiptImageType(contentType)) {
-          throw new ImageStoreError(`Unsupported contentType: ${contentType}`, 'VALIDATION_ERROR', 400);
-        }
+        validateContentType(contentType, 'contentType');
         if (!Buffer.isBuffer(body) || body.length === 0) {
           throw new ImageStoreError('Uploaded image is empty', 'VALIDATION_ERROR', 400);
         }
+        validatePositiveNumber(body.length, 'body.length');
         if (body.length > maxBytes) {
           throw new ImageStoreError(`Image exceeds the ${maxBytes} byte limit`, 'IMAGE_TOO_LARGE', 413);
         }

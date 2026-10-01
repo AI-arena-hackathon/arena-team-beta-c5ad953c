@@ -7,8 +7,9 @@ import {
   DynamoDBError,
   ReceiptValidationError,
 } from './dynamodb';
-import { ReceiptNotFoundError, StoreError, type ReceiptStore } from './store';
+import { type ReceiptStore } from './store';
 import type { Receipt, UpdateReceiptInput } from '../types/receipt';
+import { wrapError } from '../utils/errors';
 
 /**
  * `ReceiptStore` adapter over DynamoDB. DynamoDB has no partial-update helper in
@@ -17,17 +18,9 @@ import type { Receipt, UpdateReceiptInput } from '../types/receipt';
  */
 export function createDynamoReceiptStore(): ReceiptStore {
   const wrap = (error: unknown, fallbackCode: string): never => {
-    if (error instanceof DynamoDBError) {
-      if (error.code === 'RECEIPT_NOT_FOUND') {
-        throw new ReceiptNotFoundError(error.message.replace(/^Receipt not found: /, ''));
-      }
-      throw new StoreError(error.message, error.code || fallbackCode, error.statusCode);
-    }
-    throw new StoreError(
-      error instanceof Error ? error.message : 'Unknown error',
-      fallbackCode,
-      500
-    );
+    return wrapError(error, fallbackCode, 500, [
+      { instanceOf: DynamoDBError, code: 'RECEIPT_NOT_FOUND' },
+    ]);
   };
 
   return {

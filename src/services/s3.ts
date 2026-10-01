@@ -1,15 +1,12 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { awsCredentials, getConfig } from '../config';
-import { isSupportedReceiptImageType } from '../types/receipt';
+import { validateFileName, validatePathSegment, validateContentType, extractExtension } from '../utils/validation';
+import { AppError } from '../utils/errors';
 
-export class S3Error extends Error {
-  constructor(
-    message: string,
-    public readonly code: string,
-    public readonly statusCode: number = 500
-  ) {
-    super(message);
+export class S3Error extends AppError {
+  constructor(message: string, code: string, statusCode: number = 500) {
+    super(message, code, statusCode);
     this.name = 'S3Error';
   }
 }
@@ -88,45 +85,49 @@ export interface DownloadReceiptImageInput {
   imageIndex: number;
 }
 
-const SAFE_EXTENSION = /^[a-z0-9]{1,8}$/;
-
 export function generateReceiptImageKey(input: UploadReceiptImageInput): string {
   const { userId, receiptId, fileName } = input;
-  const parts = fileName.split('.');
-  const rawExtension = parts.length > 1 ? parts[parts.length - 1] : '';
-  const extension = SAFE_EXTENSION.test(rawExtension.toLowerCase()) ? rawExtension.toLowerCase() : 'jpg';
+  const extension = extractExtension(fileName);
   return `receipts/${userId}/${receiptId}/image_${Date.now()}.${extension}`;
 }
 
-export function validateContentType(contentType: string): boolean {
-  return isSupportedReceiptImageType(contentType);
-}
+// Re-export validation functions for backward compatibility
+export { validateFileName, validatePathSegment, validateContentType, isSafePathSegment } from '../utils/validation';
 
-export function validateFileName(fileName: string): boolean {
-  if (!fileName || fileName.length > 255) return false;
-  if (/[<>:"|?*]/.test(fileName)) return false;
-  for (let index = 0; index < fileName.length; index += 1) {
-    if (fileName.charCodeAt(index) < 0x20 || fileName.charCodeAt(index) === 0x7f) return false;
+// Boolean-returning validators for backward compatibility with tests
+export function validateContentTypeBoolean(contentType: string): boolean {
+  try {
+    validateContentType(contentType);
+    return true;
+  } catch {
+    return false;
   }
-  return true;
 }
 
-export function isSafePathSegment(segment: string): boolean {
-  return segment.length > 0 && segment.length <= 128 && /^[A-Za-z0-9_.-]+$/.test(segment);
+export function validateFileNameBoolean(fileName: string): boolean {
+  try {
+    validateFileName(fileName);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function wrapValidationError(error: unknown): never {
+  if (error instanceof AppError) {
+    throw new S3ValidationError(error.message);
+  }
+  throw error;
 }
 
 export async function createPresignedUploadUrl(input: UploadReceiptImageInput): Promise<PresignedUploadUrlResult> {
-  if (typeof input.userId !== 'string' || !isSafePathSegment(input.userId)) {
-    throw new S3ValidationError('userId must be a safe path segment');
-  }
-  if (typeof input.receiptId !== 'string' || !isSafePathSegment(input.receiptId)) {
-    throw new S3ValidationError('receiptId must be a safe path segment');
-  }
-  if (!input.contentType || !validateContentType(input.contentType)) {
-    throw new S3ValidationError(`Invalid contentType: ${input.contentType}. Allowed: image/jpeg, image/png, image/webp, image/heic`);
-  }
-  if (!input.fileName || !validateFileName(input.fileName)) {
-    throw new S3ValidationError('Invalid fileName');
+  try {
+    validatePathSegment(input.userId, 'userId');
+    validatePathSegment(input.receiptId, 'receiptId');
+    validateContentType(input.contentType, 'contentType');
+    validateFileName(input.fileName, 'fileName');
+  } catch (error) {
+    wrapValidationError(error);
   }
 
   const key = generateReceiptImageKey(input);
@@ -152,11 +153,11 @@ export async function createPresignedUploadUrl(input: UploadReceiptImageInput): 
 }
 
 export async function createPresignedDownloadUrl(input: DownloadReceiptImageInput): Promise<PresignedDownloadUrlResult> {
-  if (typeof input.userId !== 'string' || !isSafePathSegment(input.userId)) {
-    throw new S3ValidationError('userId is required');
-  }
-  if (typeof input.receiptId !== 'string' || !isSafePathSegment(input.receiptId)) {
-    throw new S3ValidationError('receiptId is required');
+  try {
+    validatePathSegment(input.userId, 'userId');
+    validatePathSegment(input.receiptId, 'receiptId');
+  } catch (error) {
+    wrapValidationError(error);
   }
   if (!Number.isInteger(input.imageIndex) || input.imageIndex < 0) {
     throw new S3ValidationError('imageIndex must be a non-negative integer');

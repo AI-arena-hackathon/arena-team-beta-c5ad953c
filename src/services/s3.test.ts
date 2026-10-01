@@ -82,39 +82,39 @@ describe('S3 Wrapper', () => {
     });
   });
 
-  describe('validateContentType', () => {
+  describe('validateContentTypeBoolean', () => {
     it('should return true for allowed content types', () => {
-      expect(s3Module.validateContentType('image/jpeg')).toBe(true);
-      expect(s3Module.validateContentType('image/png')).toBe(true);
-      expect(s3Module.validateContentType('image/webp')).toBe(true);
-      expect(s3Module.validateContentType('image/heic')).toBe(true);
+      expect(s3Module.validateContentTypeBoolean('image/jpeg')).toBe(true);
+      expect(s3Module.validateContentTypeBoolean('image/png')).toBe(true);
+      expect(s3Module.validateContentTypeBoolean('image/webp')).toBe(true);
+      expect(s3Module.validateContentTypeBoolean('image/heic')).toBe(true);
     });
 
     it('should return false for disallowed content types', () => {
-      expect(s3Module.validateContentType('application/pdf')).toBe(false);
-      expect(s3Module.validateContentType('text/plain')).toBe(false);
-      expect(s3Module.validateContentType('video/mp4')).toBe(false);
-      expect(s3Module.validateContentType('')).toBe(false);
+      expect(s3Module.validateContentTypeBoolean('application/pdf')).toBe(false);
+      expect(s3Module.validateContentTypeBoolean('text/plain')).toBe(false);
+      expect(s3Module.validateContentTypeBoolean('video/mp4')).toBe(false);
+      expect(s3Module.validateContentTypeBoolean('')).toBe(false);
     });
   });
 
-  describe('validateFileName', () => {
+  describe('validateFileNameBoolean', () => {
     it('should return true for valid file names', () => {
-      expect(s3Module.validateFileName('receipt.jpg')).toBe(true);
-      expect(s3Module.validateFileName('my-receipt_123.png')).toBe(true);
-      expect(s3Module.validateFileName('a'.repeat(255))).toBe(true);
+      expect(s3Module.validateFileNameBoolean('receipt.jpg')).toBe(true);
+      expect(s3Module.validateFileNameBoolean('my-receipt_123.png')).toBe(true);
+      expect(s3Module.validateFileNameBoolean('a'.repeat(255))).toBe(true);
     });
 
     it('should return false for invalid file names', () => {
-      expect(s3Module.validateFileName('')).toBe(false);
-      expect(s3Module.validateFileName('a'.repeat(256))).toBe(false);
-      expect(s3Module.validateFileName('file<name>.jpg')).toBe(false);
-      expect(s3Module.validateFileName('file>name.jpg')).toBe(false);
-      expect(s3Module.validateFileName('file:name.jpg')).toBe(false);
-      expect(s3Module.validateFileName('file"name.jpg')).toBe(false);
-      expect(s3Module.validateFileName('file|name.jpg')).toBe(false);
-      expect(s3Module.validateFileName('file?name.jpg')).toBe(false);
-      expect(s3Module.validateFileName('file*name.jpg')).toBe(false);
+      expect(s3Module.validateFileNameBoolean('')).toBe(false);
+      expect(s3Module.validateFileNameBoolean('a'.repeat(256))).toBe(false);
+      expect(s3Module.validateFileNameBoolean('file<name>.jpg')).toBe(false);
+      expect(s3Module.validateFileNameBoolean('file>name.jpg')).toBe(false);
+      expect(s3Module.validateFileNameBoolean('file:name.jpg')).toBe(false);
+      expect(s3Module.validateFileNameBoolean('file"name.jpg')).toBe(false);
+      expect(s3Module.validateFileNameBoolean('file|name.jpg')).toBe(false);
+      expect(s3Module.validateFileNameBoolean('file?name.jpg')).toBe(false);
+      expect(s3Module.validateFileNameBoolean('file*name.jpg')).toBe(false);
     });
   });
 

@@ -1,18 +1,22 @@
 import {
   MAX_RECEIPT_IMAGE_BYTES,
-  isSupportedReceiptImageType,
   type Receipt,
   type ReceiptImage,
 } from '../types/receipt';
 import type { ReceiptStore } from './store';
+import {
+  validateUserId,
+  validatePositiveNumber,
+  validateFileName,
+  validateContentType,
+  validateReceiptId,
+  startOfCurrentMonth as sharedStartOfCurrentMonth,
+} from '../utils/validation';
+import { AppError } from '../utils/errors';
 
-export class CaptureError extends Error {
-  constructor(
-    message: string,
-    public readonly code: string,
-    public readonly statusCode: number = 500
-  ) {
-    super(message);
+export class CaptureError extends AppError {
+  constructor(message: string, code: string, statusCode: number = 500) {
+    super(message, code, statusCode);
     this.name = 'CaptureError';
   }
 }
@@ -62,8 +66,6 @@ export interface CaptureDeps {
 
 export const DEFAULT_MONTHLY_LIMIT = 50;
 
-const USER_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
-
 function monthlyLimitOf(deps: CaptureDeps): number {
   return deps.monthlyLimit ?? DEFAULT_MONTHLY_LIMIT;
 }
@@ -73,39 +75,40 @@ export function generateReceiptId(): string {
 }
 
 export function startOfCurrentMonth(now: Date = new Date()): string {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+  return sharedStartOfCurrentMonth(now);
 }
 
 function assertSafeUserId(userId: unknown): string {
-  if (typeof userId !== 'string' || !USER_ID_PATTERN.test(userId)) {
-    throw new CaptureError('userId must be 1-128 chars of A-Z, a-z, 0-9, _ or -', 'VALIDATION_ERROR', 400);
+  try {
+    return validateUserId(userId, 'userId');
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw new CaptureError(error.message, error.code, error.statusCode);
+    }
+    throw error;
   }
-  return userId;
 }
 
 function validateImage(image: CaptureImageInput): void {
   if (!image || typeof image !== 'object') {
     throw new CaptureError('image is required', 'VALIDATION_ERROR', 400);
   }
-  if (!image.fileName || typeof image.fileName !== 'string' || image.fileName.length > 255) {
-    throw new CaptureError('image.fileName is required and must be at most 255 chars', 'VALIDATION_ERROR', 400);
-  }
-  if (!isSupportedReceiptImageType(image.contentType)) {
-    throw new CaptureError(
-      `Unsupported image contentType: ${image.contentType}`,
-      'VALIDATION_ERROR',
-      400
-    );
-  }
-  if (typeof image.size !== 'number' || !Number.isFinite(image.size) || image.size <= 0) {
-    throw new CaptureError('image.size must be a positive number of bytes', 'VALIDATION_ERROR', 400);
-  }
-  if (image.size > MAX_RECEIPT_IMAGE_BYTES) {
-    throw new CaptureError(
-      `Image exceeds the ${MAX_RECEIPT_IMAGE_BYTES} byte limit`,
-      'IMAGE_TOO_LARGE',
-      413
-    );
+  try {
+    validateFileName(image.fileName, 'image.fileName');
+    validateContentType(image.contentType, 'image.contentType');
+    const size = validatePositiveNumber(image.size, 'image.size');
+    if (size > MAX_RECEIPT_IMAGE_BYTES) {
+      throw new CaptureError(
+        `Image exceeds the ${MAX_RECEIPT_IMAGE_BYTES} byte limit`,
+        'IMAGE_TOO_LARGE',
+        413
+      );
+    }
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw new CaptureError(error.message, error.code, error.statusCode);
+    }
+    throw error;
   }
 }
 
@@ -221,9 +224,7 @@ export async function captureReceipt(request: CaptureRequest, deps: CaptureDeps)
  */
 export async function completeUpload(receiptId: string, userId: string, deps: CaptureDeps): Promise<Receipt> {
   const safeUserId = assertSafeUserId(userId);
-  if (typeof receiptId !== 'string' || receiptId.length === 0 || receiptId.length > 128) {
-    throw new CaptureError('receiptId is required', 'VALIDATION_ERROR', 400);
-  }
+  validateReceiptId(receiptId, 'receiptId');
 
   const current = await deps.store.get(receiptId, safeUserId);
   if (!current) {

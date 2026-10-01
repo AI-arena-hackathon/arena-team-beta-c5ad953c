@@ -4,17 +4,7 @@ import { createApp, type AppDeps } from './app';
 import { createMemoryStore, type ReceiptStore } from './services/store';
 import { createMemoryImageStore, type ImageStore } from './services/object-store';
 import { createMemoryUploadSigner } from './services/uploads';
-
-function createFakeSigner() {
-  return {
-    createUploadUrl: jest.fn(async (input: { userId: string; receiptId: string }) => ({
-      uploadUrl: `https://s3.example.test/upload/${input.receiptId}`,
-      key: `receipts/${input.userId}/${input.receiptId}/image_1.jpg`,
-      bucket: 'test-bucket',
-      expiresIn: 3600,
-    })),
-  };
-}
+import { createFakeSigner, createTestDeps, createJpegBuffer } from './utils/test-helpers';
 
 function createTestApp(overrides: AppDeps = {}): { app: Express; store: ReceiptStore; signer: ReturnType<typeof createFakeSigner> } {
   const store = overrides.store ?? createMemoryStore();
@@ -396,7 +386,7 @@ describe('local upload endpoint (UPLOAD_SIGNER=memory)', () => {
       imageStore: images,
       uploadSigner: createMemoryUploadSigner(images),
     });
-    const bytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
+    const bytes = createJpegBuffer();
 
     const created = await request(app)
       .post('/api/receipts')

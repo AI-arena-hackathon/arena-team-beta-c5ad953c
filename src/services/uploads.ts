@@ -1,7 +1,8 @@
 import { randomBytes } from 'crypto';
-import { createPresignedUploadUrl, isSafePathSegment, type PresignedUploadUrlResult } from './s3';
+import { createPresignedUploadUrl, type PresignedUploadUrlResult } from './s3';
 import { CaptureError, type UploadSigner } from './capture';
 import { MEMORY_IMAGE_BUCKET, type ImageStore } from './object-store';
+import { isSafePathSegment } from '../utils/validation';
 
 export type UploadSignerInput = Parameters<UploadSigner['createUploadUrl']>[0];
 

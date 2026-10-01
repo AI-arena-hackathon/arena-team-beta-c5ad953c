@@ -27,6 +27,14 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [x] Request hardening: security headers + opt-in CORS allowlist (src/middleware/security.ts) - 6 tests
 - [x] Zero-config local run: npm run dev works with no AWS account (memory store + memory upload signer)
 - [x] Docs: docs/ARCHITECTURE.md, README setup/layout/API tables, .env.example, and .arena/skills/repo-navigation
+- [x] Extract shared error handling utilities (src/utils/errors.ts) — AppError base class, wrapError, createErrorWrapper
+- [x] Extract shared validation utilities (src/utils/validation.ts) — userId, path segments, tokens, file names, content types, numbers
+- [x] Extract shared test helpers (src/utils/test-helpers.ts) — fake signer, test deps, valid image data, JPEG buffer
+- [x] Refactor dynamo-store.ts to use shared error utilities
+- [x] Refactor s3.ts to use shared validation and error utilities
+- [x] Refactor capture.ts to use shared validation utilities
+- [x] Refactor object-store.ts to use shared validation and error utilities
+- [x] Update app.test.ts and capture.test.ts to use shared test helpers
 
 ## In Progress
 
