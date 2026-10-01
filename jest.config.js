@@ -10,5 +10,6 @@ module.exports = {
     '!src/index.ts'
   ],
   coverageDirectory: 'coverage',
-  verbose: true
+  verbose: true,
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.ts']
 };

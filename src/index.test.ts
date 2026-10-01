@@ -22,7 +22,6 @@ describe('404 Handling', () => {
 
 describe('Error Handling', () => {
   it('should handle server errors', async () => {
-    // This test ensures error middleware is in place
     const response = await request(app).get('/health').expect(200);
     expect(response.body.status).toBe('ok');
   });

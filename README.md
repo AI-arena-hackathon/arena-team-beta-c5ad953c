@@ -85,7 +85,37 @@ npm run lint
 
 ### Environment Variables
 See `.env.example` for required variables:
+
+**Server**
 - `PORT` - Server port (default: 3000)
+- `NODE_ENV` - Environment (default: development)
+
+**AWS**
+- `AWS_REGION` - AWS region (default: us-east-1)
+- `AWS_ACCESS_KEY_ID` - AWS access key ID
+- `AWS_SECRET_ACCESS_KEY` - AWS secret access key
+
+**DynamoDB**
+- `DYNAMODB_TABLE_RECEIPTS` - Receipts table name (default: receipts)
+- `DYNAMODB_TABLE_USERS` - Users table name (default: users)
+- `DYNAMODB_ENDPOINT` - Optional local DynamoDB endpoint (e.g., http://localhost:8000)
+
+**S3**
+- `S3_BUCKET_RECEIPTS` - S3 bucket for receipt images
+- `S3_PRESIGNED_URL_EXPIRY` - Presigned URL expiry in seconds (default: 3600)
+
+**Cognito (Auth)**
+- `COGNITO_USER_POOL_ID` - Cognito user pool ID
+- `COGNITO_CLIENT_ID` - Cognito app client ID
+- `COGNITO_REGION` - Cognito region (default: us-east-1)
+
+**Textract (OCR)**
+- `TEXTRACT_ENABLED` - Enable Textract OCR (default: true)
+- `TEXTRACT_REGION` - Textract region (default: us-east-1)
+
+**Feature Flags**
+- `ENABLE_OCR_FALLBACK` - Enable Tesseract fallback (default: true)
+- `MAX_RECEIPTS_PER_MONTH` - Free tier limit (default: 50)
 
 ### API Endpoints
 - `GET /health` - Health check, returns `{"status":"ok"}`

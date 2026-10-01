@@ -1,11 +1,13 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { getConfig } from './config';
 
 dotenv.config();
 
+const config = getConfig();
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = config.server.port;
 
 app.use(cors());
 app.use(express.json());
