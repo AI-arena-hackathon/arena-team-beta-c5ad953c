@@ -36,6 +36,18 @@
           <label for="user-id">User id <span class="hint-inline">(dev identity — Cognito lands later)</span></label>
           <input id="user-id" name="userId" value="user_demo" autocomplete="off" required />
 
+          <fieldset id="consent-fieldset" class="consent-fieldset" hidden>
+            <legend>Required consents</legend>
+            <p class="hint consent-hint">You must accept these to capture receipts.</p>
+            <div id="required-consents" class="consent-list" role="group" aria-label="Required consents"></div>
+          </fieldset>
+
+          <fieldset id="optional-consent-fieldset" class="consent-fieldset" hidden>
+            <legend>Optional consents</legend>
+            <p class="hint consent-hint">These improve your experience but are not required.</p>
+            <div id="optional-consents" class="consent-list" role="group" aria-label="Optional consents"></div>
+          </fieldset>
+
           <label class="label-like" for="receipt-image">Receipt photo</label>
           <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-describedby="file-help">
             <input id="receipt-image" name="image" type="file" class="visually-hidden" />
@@ -44,7 +56,7 @@
           </div>
           <p id="file-summary" class="file-summary" role="status"></p>
 
-          <button type="submit" id="capture-button">Capture receipt</button>
+          <button type="submit" id="capture-button" disabled>Capture receipt</button>
           <p id="capture-progress" class="progress" role="status" aria-live="polite"></p>
         </form>
 

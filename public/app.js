@@ -46,6 +46,10 @@
     listResult: document.getElementById('list-result'),
     tableBody: document.querySelector('#receipts tbody'),
     detailBody: document.getElementById('detail-body'),
+    consentFieldset: document.getElementById('consent-fieldset'),
+    optionalConsentFieldset: document.getElementById('optional-consent-fieldset'),
+    requiredConsents: document.getElementById('required-consents'),
+    optionalConsents: document.getElementById('optional-consents'),
   };
 
   const state = {
@@ -66,6 +70,11 @@
     // memory too, so the affordance survives when sessionStorage is blocked.
     discardableId: null,
     timeZone: 'UTC',
+    // Consent state
+    requiredConsents: [],
+    optionalConsents: [],
+    consentsLoaded: false,
+    consentRecords: [],
   };
 
   const STEP_TEXT = {
@@ -132,6 +141,26 @@
     },
     async discard(receiptId) {
       return requestJson(`/api/receipts/${encodeURIComponent(receiptId)}`, { method: 'DELETE', headers: authHeaders() });
+    },
+    async fetchRequiredConsents() {
+      const body = await requestJson('/api/compliance/consent/required', { headers: authHeaders() });
+      return body.required || [];
+    },
+    async fetchOptionalConsents() {
+      const body = await requestJson('/api/compliance/consent/optional', { headers: authHeaders() });
+      return body.optional || [];
+    },
+    async fetchConsentRecords() {
+      const body = await requestJson('/api/compliance/consent', { headers: authHeaders() });
+      return body.consents || [];
+    },
+    async submitConsent(consentInput) {
+      const body = await requestJson('/api/compliance/consent', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ consent: consentInput }),
+      });
+      return body.consent;
     },
   };
 
@@ -279,6 +308,94 @@
       updateCaptureAvailability();
       await Promise.all([refreshReceipts(), refreshUsage()]);
     }
+  }
+
+  /* ---------------------------------------------------------------- consent UI */
+
+  /** Render a single consent checkbox item. */
+  function createConsentElement(item) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'consent-item';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.id = `consent_${item.type}`;
+    checkbox.name = `consent_${item.type}`;
+    checkbox.value = 'on';
+    // Required consents must be checked; optional can be unchecked.
+    if (item.required) checkbox.required = true;
+
+    const label = document.createElement('label');
+    label.htmlFor = checkbox.id;
+    label.textContent = item.label;
+
+    const versionBadge = document.createElement('span');
+    versionBadge.className = 'consent-version';
+    versionBadge.textContent = `v${item.version}`;
+
+    const description = document.createElement('span');
+    description.className = 'consent-description';
+    description.textContent = item.description;
+
+    if (item.required) {
+      const requiredBadge = document.createElement('span');
+      requiredBadge.className = 'consent-required-badge';
+      requiredBadge.textContent = 'Required';
+      label.appendChild(requiredBadge);
+    }
+
+    label.appendChild(versionBadge);
+    label.appendChild(description);
+    wrapper.appendChild(checkbox);
+    wrapper.appendChild(label);
+    return wrapper;
+  }
+
+  /** Render all consent checkboxes into the fieldsets. */
+  function renderConsents() {
+    const { required, optional } = format.splitConsents(state.requiredConsents, state.optionalConsents);
+    els.requiredConsents.replaceChildren();
+    els.optionalConsents.replaceChildren();
+
+    required.forEach((item) => {
+      els.requiredConsents.appendChild(createConsentElement(item));
+    });
+    optional.forEach((item) => {
+      els.optionalConsents.appendChild(createConsentElement(item));
+    });
+
+    // Show fieldsets only if there are items
+    els.consentFieldset.hidden = required.length === 0;
+    els.optionalConsentFieldset.hidden = optional.length === 0;
+  }
+
+  /** Check if all required consents are checked in the form. */
+  function areRequiredConsentsMet() {
+    const { required } = format.splitConsents(state.requiredConsents, state.optionalConsents);
+    if (required.length === 0) return true;
+    return required.every((item) => {
+      const checkbox = document.getElementById(`consent_${item.type}`);
+      return checkbox && checkbox.checked;
+    });
+  }
+
+  /** Update capture button state based on consents, file, and quota. */
+  function updateCaptureAvailability() {
+    const file = selectedFile();
+    const problem = format.validationMessage(file, state.limits);
+    const consentsMet = areRequiredConsentsMet();
+
+    // Say why the button is dead instead of only greying it out.
+    if (!consentsMet) {
+      setFileSummary('Please accept all required consents before capturing.', 'bad');
+    } else {
+      setFileSummary(problem || (file ? format.formatFileSummary(file) : ''), problem ? 'bad' : 'idle');
+    }
+
+    const disabled = state.busy || Boolean(problem) || !consentsMet;
+    els.captureButton.disabled = disabled;
+    els.captureButton.textContent = state.busy ? 'Capturing…' : 'Capture receipt';
+    return problem || (!consentsMet ? 'consents' : null);
   }
 
   /* ------------------------------------------------------------------ records */
@@ -591,6 +708,26 @@
     updateCaptureAvailability();
   }
 
+  /** Load and render consent checkboxes for the current user. */
+  async function loadConsents() {
+    try {
+      const [required, optional, records] = await Promise.all([
+        api.fetchRequiredConsents(),
+        api.fetchOptionalConsents(),
+        api.fetchConsentRecords(),
+      ]);
+      state.requiredConsents = required;
+      state.optionalConsents = optional;
+      state.consentRecords = records;
+      state.consentsLoaded = true;
+      renderConsents();
+      updateCaptureAvailability();
+    } catch (error) {
+      state.consentsLoaded = false;
+      /* Consent load failure is non-blocking; the server will enforce on submit. */
+    }
+  }
+
   /* ----------------------------------------------------------------- handlers */
 
   async function runCapture() {
@@ -599,6 +736,29 @@
     if (problem) {
       setFileSummary(problem, 'bad');
       return;
+    }
+
+    // Collect consent choices from the form
+    const formData = new FormData(els.form);
+    const consentPayload = format.buildConsentPayload(state.requiredConsents, state.optionalConsents, formData);
+
+    // Submit any consents that have changed (granted or denied)
+    const consentsToSubmit = consentPayload.filter((consent) => consent.status !== 'denied' || state.consentRecords.some((r) => r.consentType === consent.consentType && r.status === 'granted'));
+    for (const consent of consentsToSubmit) {
+      try {
+        await api.submitConsent(consent);
+      } catch (error) {
+        // If consent submission fails, show error and abort capture
+        showError(`Failed to record consent: ${describeError(error)}`, { retry: runCapture });
+        return;
+      }
+    }
+
+    // Refresh consent records after submission
+    try {
+      state.consentRecords = await api.fetchConsentRecords();
+    } catch (error) {
+      /* non-blocking */
     }
 
     state.busy = true;
@@ -767,11 +927,16 @@
     state.selectedId = null;
     state.detail = null;
     state.discardableId = null;
+    state.requiredConsents = [];
+    state.optionalConsents = [];
+    state.consentRecords = [];
+    state.consentsLoaded = false;
     hideError();
     setProgress('');
     renderDetail(null);
     renderResume(recallPending());
-    Promise.all([refreshReceipts(), refreshUsage()]);
+    renderConsents();
+    Promise.all([refreshReceipts(), refreshUsage(), loadConsents()]);
   });
 
   /* -------------------------------------------------------------------- boot */
@@ -788,6 +953,7 @@
     renderResume(recallPending());
     refreshHealth();
     refreshConfig();
+    loadConsents();
     Promise.all([refreshUsage(), refreshReceipts()]);
   }
 

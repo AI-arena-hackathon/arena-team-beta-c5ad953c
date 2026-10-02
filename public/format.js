@@ -25,6 +25,22 @@
   // Remaining monthly slots at or below this get an amber pill.
   const LOW_QUOTA = 2;
 
+  const CONSENT_LABELS = {
+    terms_of_service: 'Terms of Service',
+    privacy_policy: 'Privacy Policy',
+    data_processing: 'Data Processing Agreement',
+    analytics: 'Analytics & Usage Data',
+    marketing: 'Marketing Communications',
+  };
+
+  const CONSENT_DESCRIPTIONS = {
+    terms_of_service: 'You agree to the Terms of Service governing use of this service.',
+    privacy_policy: 'You acknowledge the Privacy Policy describing how your data is collected and used.',
+    data_processing: 'You consent to processing of your receipt data for expense extraction.',
+    analytics: 'Allow anonymous usage analytics to improve the service.',
+    marketing: 'Receive occasional product updates and tips via email.',
+  };
+
   const STATUS_LABELS = {
     pending: 'Awaiting upload',
     processing: 'Awaiting extraction',
@@ -238,6 +254,49 @@
     return null;
   }
 
+  /** Build a consent checkbox item object for rendering. Pure data, no DOM. */
+  function buildConsentItem(consent, required) {
+    return {
+      type: consent.type,
+      version: consent.version,
+      required: required,
+      label: CONSENT_LABELS[consent.type] || consent.type,
+      description: CONSENT_DESCRIPTIONS[consent.type] || '',
+    };
+  }
+
+  /** Split consent types into required and optional groups with labels. */
+  function splitConsents(requiredConsents, optionalConsents) {
+    const required = (requiredConsents || []).map((consent) => buildConsentItem(consent, true));
+    const optional = (optionalConsents || []).map((consent) => buildConsentItem(consent, false));
+    return { required, optional };
+  }
+
+  /** Check if all required consents are granted in the user's consent records. */
+  function areRequiredConsentsGranted(consentRecords, requiredConsents) {
+    if (!Array.isArray(consentRecords) || !Array.isArray(requiredConsents)) return false;
+    const granted = new Set(
+      consentRecords
+        .filter((record) => record.status === 'granted')
+        .map((record) => record.consentType)
+    );
+    return requiredConsents.every((consent) => granted.has(consent.type));
+  }
+
+  /** Build the payload for the consent API from checkbox states. */
+  function buildConsentPayload(requiredItems, optionalItems, formData) {
+    const payload = [];
+    requiredItems.forEach((item) => {
+      const checked = formData.get(`consent_${item.type}`) === 'on';
+      payload.push({ consentType: item.type, status: checked ? 'granted' : 'denied', version: item.version });
+    });
+    optionalItems.forEach((item) => {
+      const checked = formData.get(`consent_${item.type}`) === 'on';
+      payload.push({ consentType: item.type, status: checked ? 'granted' : 'denied', version: item.version });
+    });
+    return payload;
+  }
+
   return {
     ACCEPT_ATTRIBUTE,
     formatAmount,
@@ -256,5 +315,9 @@
     usageLabel,
     usageTone,
     validationMessage,
+    buildConsentItem,
+    splitConsents,
+    areRequiredConsentsGranted,
+    buildConsentPayload,
   };
 });

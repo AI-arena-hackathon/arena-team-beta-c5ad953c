@@ -21,6 +21,12 @@
     root.CaptureFlow = api;
   }
 })(typeof window !== 'undefined' ? window : globalThis, function makeCaptureFlow() {
+  const CONSENT_API = {
+    required: '/api/compliance/consent/required',
+    optional: '/api/compliance/consent/optional',
+    submit: '/api/compliance/consent',
+  };
+
   function toError(value) {
     if (value instanceof Error) return value;
     const error = new Error(typeof value === 'string' ? value : JSON.stringify(value));
@@ -59,6 +65,44 @@
     return { action: 'retry', receiptId: null, stage: null };
   }
 
+  /** Fetch the list of required consent types and versions from the API. */
+  async function fetchRequiredConsents(deps) {
+    const response = await deps.fetch(CONSENT_API.required);
+    if (!response.ok) throw toError({ code: 'CONSENT_FETCH_FAILED', message: 'Failed to load required consents' });
+    return response.json();
+  }
+
+  /** Fetch the list of optional consent types and versions from the API. */
+  async function fetchOptionalConsents(deps) {
+    const response = await deps.fetch(CONSENT_API.optional);
+    if (!response.ok) throw toError({ code: 'CONSENT_FETCH_FAILED', message: 'Failed to load optional consents' });
+    return response.json();
+  }
+
+  /** Submit a consent record to the API. */
+  async function submitConsent(deps, consentInput) {
+    const response = await deps.fetch(CONSENT_API.submit, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ consent: consentInput }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw toError(body.error || { code: 'CONSENT_SUBMIT_FAILED', message: 'Failed to submit consent' });
+    }
+    return response.json();
+  }
+
+  /** Submit multiple consent records in sequence. */
+  async function submitConsents(deps, consentInputs) {
+    const results = [];
+    for (const input of consentInputs) {
+      const result = await submitConsent(deps, input);
+      results.push(result);
+    }
+    return results;
+  }
+
   async function captureReceiptOnce(deps, file, onStep) {
     let reserved;
     try {
@@ -87,5 +131,5 @@
     }
   }
 
-  return { captureReceiptOnce, recoveryFor };
+  return { captureReceiptOnce, recoveryFor, fetchRequiredConsents, fetchOptionalConsents, submitConsent, submitConsents };
 });

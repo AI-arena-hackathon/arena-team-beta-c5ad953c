@@ -27,6 +27,10 @@ interface FormatModule {
   usageLabel(usage: unknown): string;
   usageTone(usage: unknown): string;
   validationMessage(file: unknown, limits: unknown): string | null;
+  buildConsentItem(consent: { type: string; version: string }, required: boolean): { type: string; version: string; required: boolean; label: string; description: string };
+  splitConsents(requiredConsents: Array<{ type: string; version: string }>, optionalConsents: Array<{ type: string; version: string }>): { required: Array<{ type: string; version: string; required: boolean; label: string; description: string }>; optional: Array<{ type: string; version: string; required: boolean; label: string; description: string }> };
+  areRequiredConsentsGranted(consentRecords: Array<{ consentType: string; status: string }>, requiredConsents: Array<{ type: string; version: string }>): boolean;
+  buildConsentPayload(requiredItems: Array<{ type: string; version: string }>, optionalItems: Array<{ type: string; version: string }>, formData: FormData): Array<{ consentType: string; status: 'granted' | 'denied'; version: string }>;
 }
 
 /** The contract `capture-flow.js` needs: three calls, no DOM. */
@@ -52,6 +56,10 @@ interface Recovery {
 interface CaptureFlowModule {
   captureReceiptOnce(deps: CaptureDeps, file: unknown, onStep?: (step: unknown) => void): Promise<Receipt>;
   recoveryFor(error: unknown): Recovery;
+  fetchRequiredConsents(deps: { fetch: typeof fetch }): Promise<{ required: Array<{ type: string; version: string }> }>;
+  fetchOptionalConsents(deps: { fetch: typeof fetch }): Promise<{ optional: Array<{ type: string; version: string }> }>;
+  submitConsent(deps: { fetch: typeof fetch }, consentInput: { consentType: string; status: string; version: string }): Promise<{ consent: unknown }>;
+  submitConsents(deps: { fetch: typeof fetch }, consentInputs: Array<{ consentType: string; status: string; version: string }>): Promise<Array<{ consent: unknown }>>;
 }
 
 const format = require('../../public/format.js') as FormatModule;
@@ -386,5 +394,278 @@ describe('recovery after a failure', () => {
   it('does not offer a reclaim for a receipt it cannot name', () => {
     expect(flow.recoveryFor({ discardable: true, receiptId: '' }).action).toBe('retry');
     expect(flow.recoveryFor({ confirmable: true, receiptId: undefined }).action).toBe('retry');
+  });
+});
+
+describe('consent formatting and validation', () => {
+  const requiredConsents = [
+    { type: 'terms_of_service', version: '1.0.0' },
+    { type: 'privacy_policy', version: '1.0.0' },
+    { type: 'data_processing', version: '1.0.0' },
+  ];
+  const optionalConsents = [
+    { type: 'analytics', version: '1.0.0' },
+    { type: 'marketing', version: '1.0.0' },
+  ];
+
+  describe('buildConsentItem', () => {
+    it('builds a required consent item with label and description', () => {
+      const item = format.buildConsentItem({ type: 'terms_of_service', version: '1.0.0' }, true);
+
+      expect(item).toEqual({
+        type: 'terms_of_service',
+        version: '1.0.0',
+        required: true,
+        label: 'Terms of Service',
+        description: 'You agree to the Terms of Service governing use of this service.',
+      });
+    });
+
+    it('builds an optional consent item with label and description', () => {
+      const item = format.buildConsentItem({ type: 'analytics', version: '1.0.0' }, false);
+
+      expect(item).toEqual({
+        type: 'analytics',
+        version: '1.0.0',
+        required: false,
+        label: 'Analytics & Usage Data',
+        description: 'Allow anonymous usage analytics to improve the service.',
+      });
+    });
+
+    it('falls back to the type as label for unknown consent types', () => {
+      const item = format.buildConsentItem({ type: 'unknown_consent', version: '1.0.0' }, true);
+
+      expect(item.label).toBe('unknown_consent');
+      expect(item.description).toBe('');
+    });
+  });
+
+  describe('splitConsents', () => {
+    it('splits required and optional consents with labels and descriptions', () => {
+      const result = format.splitConsents(requiredConsents, optionalConsents);
+
+      expect(result.required).toHaveLength(3);
+      expect(result.optional).toHaveLength(2);
+      expect(result.required[0].required).toBe(true);
+      expect(result.optional[0].required).toBe(false);
+      expect(result.required[0].label).toBe('Terms of Service');
+      expect(result.optional[0].label).toBe('Analytics & Usage Data');
+    });
+
+    it('handles empty arrays gracefully', () => {
+      const result = format.splitConsents([], []);
+
+      expect(result.required).toEqual([]);
+      expect(result.optional).toEqual([]);
+    });
+
+    it('handles undefined inputs gracefully', () => {
+      const result = format.splitConsents(undefined as unknown as typeof requiredConsents, undefined as unknown as typeof optionalConsents);
+
+      expect(result.required).toEqual([]);
+      expect(result.optional).toEqual([]);
+    });
+  });
+
+  describe('areRequiredConsentsGranted', () => {
+    it('returns true when all required consents are granted', () => {
+      const records = [
+        { consentType: 'terms_of_service', status: 'granted' },
+        { consentType: 'privacy_policy', status: 'granted' },
+        { consentType: 'data_processing', status: 'granted' },
+      ];
+
+      expect(format.areRequiredConsentsGranted(records, requiredConsents)).toBe(true);
+    });
+
+    it('returns false when any required consent is missing', () => {
+      const records = [
+        { consentType: 'terms_of_service', status: 'granted' },
+        { consentType: 'privacy_policy', status: 'granted' },
+      ];
+
+      expect(format.areRequiredConsentsGranted(records, requiredConsents)).toBe(false);
+    });
+
+    it('returns false when a required consent is denied', () => {
+      const records = [
+        { consentType: 'terms_of_service', status: 'granted' },
+        { consentType: 'privacy_policy', status: 'denied' },
+        { consentType: 'data_processing', status: 'granted' },
+      ];
+
+      expect(format.areRequiredConsentsGranted(records, requiredConsents)).toBe(false);
+    });
+
+    it('returns false when a required consent is withdrawn', () => {
+      const records = [
+        { consentType: 'terms_of_service', status: 'granted' },
+        { consentType: 'privacy_policy', status: 'withdrawn' },
+        { consentType: 'data_processing', status: 'granted' },
+      ];
+
+      expect(format.areRequiredConsentsGranted(records, requiredConsents)).toBe(false);
+    });
+
+    it('returns false for empty records', () => {
+      expect(format.areRequiredConsentsGranted([], requiredConsents)).toBe(false);
+    });
+
+    it('returns false for null/undefined records', () => {
+      expect(format.areRequiredConsentsGranted(null as unknown as Array<{ consentType: string; status: string }>, requiredConsents)).toBe(false);
+      expect(format.areRequiredConsentsGranted(undefined as unknown as Array<{ consentType: string; status: string }>, requiredConsents)).toBe(false);
+    });
+
+    it('ignores optional consents in the check', () => {
+      const records = [
+        { consentType: 'terms_of_service', status: 'granted' },
+        { consentType: 'privacy_policy', status: 'granted' },
+        { consentType: 'data_processing', status: 'granted' },
+        { consentType: 'analytics', status: 'denied' },
+        { consentType: 'marketing', status: 'denied' },
+      ];
+
+      expect(format.areRequiredConsentsGranted(records, requiredConsents)).toBe(true);
+    });
+  });
+
+  describe('buildConsentPayload', () => {
+    it('builds payload from form data with granted and denied statuses', () => {
+      const requiredItems = [
+        { type: 'terms_of_service', version: '1.0.0', required: true, label: 'Terms of Service', description: '' },
+        { type: 'privacy_policy', version: '1.0.0', required: true, label: 'Privacy Policy', description: '' },
+      ];
+      const optionalItems = [
+        { type: 'analytics', version: '1.0.0', required: false, label: 'Analytics', description: '' },
+      ];
+
+      const formData = new FormData();
+      formData.append('consent_terms_of_service', 'on');
+      formData.append('consent_privacy_policy', 'on');
+      // analytics not checked = denied
+
+      const payload = format.buildConsentPayload(requiredItems, optionalItems, formData);
+
+      expect(payload).toEqual([
+        { consentType: 'terms_of_service', status: 'granted', version: '1.0.0' },
+        { consentType: 'privacy_policy', status: 'granted', version: '1.0.0' },
+        { consentType: 'analytics', status: 'denied', version: '1.0.0' },
+      ]);
+    });
+
+    it('handles empty form data (all denied)', () => {
+      const requiredItems = [
+        { type: 'terms_of_service', version: '1.0.0', required: true, label: 'Terms of Service', description: '' },
+      ];
+      const optionalItems = [
+        { type: 'analytics', version: '1.0.0', required: false, label: 'Analytics', description: '' },
+      ];
+
+      const formData = new FormData();
+
+      const payload = format.buildConsentPayload(requiredItems, optionalItems, formData);
+
+      expect(payload).toEqual([
+        { consentType: 'terms_of_service', status: 'denied', version: '1.0.0' },
+        { consentType: 'analytics', status: 'denied', version: '1.0.0' },
+      ]);
+    });
+  });
+});
+
+describe('consent API calls', () => {
+  const mockFetch = jest.fn();
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  const mockFetchDeps = { fetch: mockFetch };
+
+  it('fetchRequiredConsents returns the required array', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ required: [{ type: 'terms_of_service', version: '1.0.0' }] }),
+    });
+
+    const result = await flow.fetchRequiredConsents(mockFetchDeps);
+
+    expect(mockFetch).toHaveBeenCalledWith('/api/compliance/consent/required');
+    expect(result.required).toEqual([{ type: 'terms_of_service', version: '1.0.0' }]);
+  });
+
+  it('fetchRequiredConsents throws on non-ok response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+    });
+
+    await expect(flow.fetchRequiredConsents(mockFetchDeps)).rejects.toMatchObject({
+      code: 'CONSENT_FETCH_FAILED',
+    });
+  });
+
+  it('fetchOptionalConsents returns the optional array', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ optional: [{ type: 'analytics', version: '1.0.0' }] }),
+    });
+
+    const result = await flow.fetchOptionalConsents(mockFetchDeps);
+
+    expect(mockFetch).toHaveBeenCalledWith('/api/compliance/consent/optional');
+    expect(result.optional).toEqual([{ type: 'analytics', version: '1.0.0' }]);
+  });
+
+  it('submitConsent posts consent and returns the record', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ consent: { consentType: 'terms_of_service', status: 'granted', version: '1.0.0' } }),
+    });
+
+    const result = await flow.submitConsent(mockFetchDeps, {
+      consentType: 'terms_of_service',
+      status: 'granted',
+      version: '1.0.0',
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith('/api/compliance/consent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ consent: { consentType: 'terms_of_service', status: 'granted', version: '1.0.0' } }),
+    });
+    expect(result.consent).toEqual({ consentType: 'terms_of_service', status: 'granted', version: '1.0.0' });
+  });
+
+  it('submitConsent throws on error response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ error: { code: 'VALIDATION_ERROR', message: 'Invalid consent' } }),
+    });
+
+    await expect(
+      flow.submitConsent(mockFetchDeps, { consentType: 'terms_of_service', status: 'granted', version: '1.0.0' })
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  it('submitConsents submits multiple consents in sequence', async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ consent: { consentType: 'terms_of_service', status: 'granted', version: '1.0.0' } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ consent: { consentType: 'privacy_policy', status: 'granted', version: '1.0.0' } }),
+      });
+
+    const results = await flow.submitConsents(mockFetchDeps, [
+      { consentType: 'terms_of_service', status: 'granted', version: '1.0.0' },
+      { consentType: 'privacy_policy', status: 'granted', version: '1.0.0' },
+    ]);
+
+    expect(results).toHaveLength(2);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 });
