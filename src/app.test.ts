@@ -8,6 +8,30 @@ import { createFakeSigner, createTestDeps, createJpegBuffer } from './utils/test
 import { disabledIdentityResolver } from './middleware/identity';
 import { createMemoryConsentStore } from './services/compliance';
 import { createMemoryDataSubjectRequestStore } from './services/compliance';
+import { Receipt, ReceiptMetadata, ReceiptLineItem, ReceiptImage, ReceiptOcrResult, ReceiptCategory } from './types/receipt';
+
+jest.mock('./services/ocr', () => {
+  const actual = jest.requireActual('./services/ocr');
+  return {
+    ...actual,
+    processReceiptOcr: jest.fn(),
+    OcrError: actual.OcrError,
+    OcrFallbackError: actual.OcrFallbackError,
+  };
+});
+
+jest.mock('./services/categorize', () => {
+  const actual = jest.requireActual('./services/categorize');
+  return {
+    ...actual,
+    categorizeReceipt: jest.fn(),
+  };
+});
+
+import { processReceiptOcr, OcrError, OcrFallbackError } from './services/ocr';
+import { categorizeReceipt } from './services/categorize';
+import * as ocrModule from './services/ocr';
+import * as categorizeModule from './services/categorize';
 
 function createTestApp(overrides: AppDeps = {}): { app: Express; store: ReceiptStore; signer: ReturnType<typeof createFakeSigner> } {
   const store = overrides.store ?? createMemoryStore();
@@ -629,6 +653,308 @@ describe('local upload endpoint (UPLOAD_SIGNER=memory)', () => {
     const response = await request(app).get(grant.uploadUrl).set('x-user-id', 'user_other').expect(404);
 
     expect(response.body.error.code).toBe('OBJECT_NOT_FOUND');
+  });
+});
+
+const sampleOcrResult: ReceiptOcrResult = {
+  rawText: 'Test Merchant\nItem 1 $10.00\nItem 2 $20.00\nTotal $30.00',
+  confidence: 95,
+  extractedFields: { Merchant: 'Test Merchant', Total: '$30.00' },
+  lineItems: [
+    { description: 'Item 1', quantity: 1, unitPrice: 10, total: 10 },
+    { description: 'Item 2', quantity: 1, unitPrice: 20, total: 20 },
+  ],
+  processingTimeMs: 1000,
+  engine: 'textract',
+};
+
+const sampleCategorization = {
+  categories: [
+    { id: 'cat_food', name: 'Food & Dining', confidence: 0.85, source: 'rule' as const },
+  ],
+  categorizedLineItems: [
+    { description: 'Item 1', quantity: 1, unitPrice: 10, total: 10, category: 'Food & Dining' },
+    { description: 'Item 2', quantity: 1, unitPrice: 20, total: 20, category: 'Food & Dining' },
+  ],
+};
+
+function createProcessingReceipt(overrides: Partial<Receipt> = {}): Receipt {
+  const baseReceipt: Receipt = {
+    receiptId: 'rcpt_test_123',
+    userId: 'user_123',
+    metadata: {
+      merchantName: 'Test Merchant',
+      transactionDate: '2024-01-15',
+      subtotal: 1000,
+      tax: 100,
+      total: 1100,
+      currency: 'USD',
+    },
+    lineItems: [],
+    images: [
+      {
+        s3Key: 'memory://test-token-123',
+        s3Bucket: 'memory-images',
+        contentType: 'image/jpeg',
+        size: 20481,
+      } as ReceiptImage,
+    ],
+    categories: [],
+    status: 'pending',
+    createdAt: '2024-01-15T10:00:00.000Z',
+    updatedAt: '2024-01-15T10:00:00.000Z',
+    version: 1,
+  };
+  return { ...baseReceipt, ...overrides };
+}
+
+describe('POST /api/receipts/:receiptId/process', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (ocrModule.processReceiptOcr as jest.Mock).mockResolvedValue({
+      ocrResult: sampleOcrResult,
+      engine: 'textract',
+      warnings: [],
+    });
+    (categorizeModule.categorizeReceipt as jest.Mock).mockReturnValue(sampleCategorization);
+  });
+
+  it('processes a pending receipt through OCR and categorization', async () => {
+    const store = createMemoryStore();
+    const images = createMemoryImageStore();
+    const { app } = createTestApp({ store, imageStore: images });
+    await store.save(createProcessingReceipt());
+    await images.reserve('test-token-123', { userId: 'user_123', receiptId: 'rcpt_test_123' });
+    await images.put('test-token-123', 'image/jpeg', createJpegBuffer());
+
+    const response = await request(app)
+      .post('/api/receipts/rcpt_test_123/process')
+      .set('x-user-id', 'user_123')
+      .expect(200);
+
+    expect(response.body.receipt.status).toBe('completed');
+    expect(response.body.receipt.ocrResult).toEqual(sampleOcrResult);
+    expect(response.body.receipt.categories).toEqual(sampleCategorization.categories);
+    expect(response.body.receipt.lineItems).toEqual(sampleCategorization.categorizedLineItems);
+    expect(response.body.ocrWarnings).toEqual([]);
+    expect(response.body.categorization).toEqual(sampleCategorization);
+  });
+
+  it('updates metadata from OCR extracted fields', async () => {
+    const store = createMemoryStore();
+    const images = createMemoryImageStore();
+    const { app } = createTestApp({ store, imageStore: images });
+    const ocrWithFields: ReceiptOcrResult = {
+      ...sampleOcrResult,
+      extractedFields: {
+        Merchant: 'Updated Merchant',
+        Address: '123 New St',
+        Total: '$50.00',
+        Tax: '$5.00',
+      },
+    };
+    (ocrModule.processReceiptOcr as jest.Mock).mockResolvedValue({
+      ocrResult: ocrWithFields,
+      engine: 'textract',
+      warnings: [],
+    });
+    await store.save(createProcessingReceipt());
+    await images.reserve('test-token-123', { userId: 'user_123', receiptId: 'rcpt_test_123' });
+    await images.put('test-token-123', 'image/jpeg', createJpegBuffer());
+
+    const response = await request(app)
+      .post('/api/receipts/rcpt_test_123/process')
+      .set('x-user-id', 'user_123')
+      .expect(200);
+
+    expect(response.body.receipt.metadata.merchantName).toBe('Updated Merchant');
+    expect(response.body.receipt.metadata.merchantAddress).toBe('123 New St');
+    expect(response.body.receipt.metadata.total).toBe(50);
+    expect(response.body.receipt.metadata.tax).toBe(5);
+  });
+
+  it('includes OCR warnings in result', async () => {
+    const store = createMemoryStore();
+    const images = createMemoryImageStore();
+    const { app } = createTestApp({ store, imageStore: images });
+    (ocrModule.processReceiptOcr as jest.Mock).mockResolvedValue({
+      ocrResult: sampleOcrResult,
+      engine: 'tesseract',
+      warnings: ['Textract throttled, falling back to Tesseract'],
+    });
+    await store.save(createProcessingReceipt());
+    await images.reserve('test-token-123', { userId: 'user_123', receiptId: 'rcpt_test_123' });
+    await images.put('test-token-123', 'image/jpeg', createJpegBuffer());
+
+    const response = await request(app)
+      .post('/api/receipts/rcpt_test_123/process')
+      .set('x-user-id', 'user_123')
+      .expect(200);
+
+    expect(response.body.ocrWarnings).toContain('Textract throttled, falling back to Tesseract');
+  });
+
+  it('returns 404 for non-existent receipt', async () => {
+    const store = createMemoryStore();
+    const images = createMemoryImageStore();
+    const { app } = createTestApp({ store, imageStore: images });
+
+    const response = await request(app)
+      .post('/api/receipts/rcpt_nonexistent/process')
+      .set('x-user-id', 'user_123')
+      .expect(404);
+
+    expect(response.body.error.code).toBe('RECEIPT_NOT_FOUND');
+  });
+
+  it('returns 409 for completed receipt', async () => {
+    const store = createMemoryStore();
+    const images = createMemoryImageStore();
+    const { app } = createTestApp({ store, imageStore: images });
+    await store.save(createProcessingReceipt({ status: 'completed', receiptId: 'rcpt_completed' }));
+    await images.reserve('test-token-456', { userId: 'user_123', receiptId: 'rcpt_completed' });
+    await images.put('test-token-456', 'image/jpeg', createJpegBuffer());
+
+    const response = await request(app)
+      .post('/api/receipts/rcpt_completed/process')
+      .set('x-user-id', 'user_123')
+      .expect(409);
+
+    expect(response.body.error.code).toBe('INVALID_STATUS');
+  });
+
+  it('returns 404 when another user tries to process the receipt', async () => {
+    const store = createMemoryStore();
+    const images = createMemoryImageStore();
+    const { app } = createTestApp({ store, imageStore: images });
+    await store.save(createProcessingReceipt());
+    await images.reserve('test-token-123', { userId: 'user_123', receiptId: 'rcpt_test_123' });
+    await images.put('test-token-123', 'image/jpeg', createJpegBuffer());
+
+    await request(app)
+      .post('/api/receipts/rcpt_test_123/process')
+      .set('x-user-id', 'user_other')
+      .expect(404);
+  });
+
+  it('requires an identity header', async () => {
+    const { app } = createTestApp();
+
+    await request(app).post('/api/receipts/rcpt_1/process').expect(401);
+  });
+
+  it('passes useTextract and useOcrFallback options to OCR', async () => {
+    const store = createMemoryStore();
+    const images = createMemoryImageStore();
+    const { app } = createTestApp({ store, imageStore: images });
+    await store.save(createProcessingReceipt());
+    await images.reserve('test-token-123', { userId: 'user_123', receiptId: 'rcpt_test_123' });
+    await images.put('test-token-123', 'image/jpeg', createJpegBuffer());
+
+    await request(app)
+      .post('/api/receipts/rcpt_test_123/process')
+      .set('x-user-id', 'user_123')
+      .send({ useTextract: false, useOcrFallback: false })
+      .expect(200);
+
+    expect(ocrModule.processReceiptOcr).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      expect.objectContaining({ useTextract: false, useFallback: false })
+    );
+  });
+
+  it('marks receipt as failed when OCR fails', async () => {
+    const store = createMemoryStore();
+    const images = createMemoryImageStore();
+    const { app } = createTestApp({ store, imageStore: images });
+    (ocrModule.processReceiptOcr as jest.Mock).mockRejectedValue(new OcrError('OCR failed', 'OCR_FAILED'));
+    await store.save(createProcessingReceipt());
+    await images.reserve('test-token-123', { userId: 'user_123', receiptId: 'rcpt_test_123' });
+    await images.put('test-token-123', 'image/jpeg', createJpegBuffer());
+
+    const response = await request(app)
+      .post('/api/receipts/rcpt_test_123/process')
+      .set('x-user-id', 'user_123')
+      .expect(500);
+
+    expect(response.body.error.code).toBe('OCR_FAILED');
+    const failedReceipt = await store.get('rcpt_test_123', 'user_123');
+    expect(failedReceipt?.status).toBe('failed');
+  });
+});
+
+describe('POST /api/receipts/:receiptId/reprocess', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (ocrModule.processReceiptOcr as jest.Mock).mockResolvedValue({
+      ocrResult: sampleOcrResult,
+      engine: 'textract',
+      warnings: [],
+    });
+    (categorizeModule.categorizeReceipt as jest.Mock).mockReturnValue(sampleCategorization);
+  });
+
+  it('reprocesses a completed receipt', async () => {
+    const store = createMemoryStore();
+    const images = createMemoryImageStore();
+    const { app } = createTestApp({ store, imageStore: images });
+    await store.save(createProcessingReceipt({ status: 'completed', receiptId: 'rcpt_completed_2' }));
+    await images.reserve('test-token-reprocess', { userId: 'user_123', receiptId: 'rcpt_completed_2' });
+    await images.put('test-token-reprocess', 'image/jpeg', createJpegBuffer());
+
+    const response = await request(app)
+      .post('/api/receipts/rcpt_completed_2/reprocess')
+      .set('x-user-id', 'user_123')
+      .expect(200);
+
+    expect(response.body.receipt.status).toBe('completed');
+  });
+
+  it('reprocesses a failed receipt', async () => {
+    const store = createMemoryStore();
+    const images = createMemoryImageStore();
+    const { app } = createTestApp({ store, imageStore: images });
+    await store.save(createProcessingReceipt({ status: 'failed', receiptId: 'rcpt_failed_2' }));
+    await images.reserve('test-token-reprocess2', { userId: 'user_123', receiptId: 'rcpt_failed_2' });
+    await images.put('test-token-reprocess2', 'image/jpeg', createJpegBuffer());
+
+    const response = await request(app)
+      .post('/api/receipts/rcpt_failed_2/reprocess')
+      .set('x-user-id', 'user_123')
+      .expect(200);
+
+    expect(response.body.receipt.status).toBe('completed');
+  });
+
+  it('returns 409 for pending receipt', async () => {
+    const store = createMemoryStore();
+    const images = createMemoryImageStore();
+    const { app } = createTestApp({ store, imageStore: images });
+    await store.save(createProcessingReceipt());
+    await images.reserve('test-token-123', { userId: 'user_123', receiptId: 'rcpt_test_123' });
+    await images.put('test-token-123', 'image/jpeg', createJpegBuffer());
+
+    const response = await request(app)
+      .post('/api/receipts/rcpt_test_123/reprocess')
+      .set('x-user-id', 'user_123')
+      .expect(409);
+
+    expect(response.body.error.code).toBe('INVALID_STATUS');
+  });
+
+  it('returns 404 for non-existent receipt', async () => {
+    const { app } = createTestApp();
+
+    await request(app)
+      .post('/api/receipts/rcpt_nonexistent/reprocess')
+      .set('x-user-id', 'user_123')
+      .expect(404);
+  });
+
+  it('requires an identity header', async () => {
+    const { app } = createTestApp();
+
+    await request(app).post('/api/receipts/rcpt_1/reprocess').expect(401);
   });
 });
 

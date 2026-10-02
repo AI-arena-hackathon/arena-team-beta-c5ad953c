@@ -13,6 +13,7 @@ export interface ReceiptStore {
   update(receiptId: string, userId: string, changes: Partial<Receipt>): Promise<Receipt | null>;
   remove(receiptId: string, userId: string): Promise<boolean>;
   list(filters: ReceiptQueryFilters): Promise<ReceiptQueryResult>;
+  query(filters: ReceiptQueryFilters): Promise<ReceiptQueryResult>;
 }
 
 export class StoreError extends Error {
@@ -94,6 +95,10 @@ export function createMemoryStore(): ReceiptStore {
         items: matched.slice(0, limit).map((receipt) => ({ ...receipt })),
         count: matched.length,
       });
+    },
+
+    query(filters: ReceiptQueryFilters): Promise<ReceiptQueryResult> {
+      return this.list(filters);
     },
   };
 }

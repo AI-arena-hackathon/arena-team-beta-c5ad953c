@@ -11,6 +11,7 @@ import { createS3UploadSigner } from './services/uploads';
 import { createMemoryImageStore, type ImageStore } from './services/object-store';
 import { createMemoryConsentStore, type ConsentStore } from './services/compliance';
 import { createMemoryDataSubjectRequestStore, type DataSubjectRequestStore } from './services/compliance';
+import type { ReceiptProcessorDeps } from './services/processing';
 
 export interface AppDeps {
   store?: ReceiptStore;
@@ -24,6 +25,7 @@ export interface AppDeps {
   corsOrigins?: readonly string[];
   consentStore?: ConsentStore;
   dsrStore?: DataSubjectRequestStore;
+  processingDeps?: ReceiptProcessorDeps;
 }
 
 /**
@@ -55,6 +57,7 @@ export function createApp(deps: AppDeps = {}): Express {
       imageStore: deps.imageStore ?? createMemoryImageStore(),
       consentStore: deps.consentStore ?? createMemoryConsentStore(),
       dsrStore: deps.dsrStore ?? createMemoryDataSubjectRequestStore(),
+      processingDeps: deps.processingDeps,
     })
   );
 

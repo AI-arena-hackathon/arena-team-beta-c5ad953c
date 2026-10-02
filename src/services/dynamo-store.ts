@@ -8,7 +8,7 @@ import {
   ReceiptValidationError,
 } from './dynamodb';
 import { type ReceiptStore } from './store';
-import type { Receipt, UpdateReceiptInput } from '../types/receipt';
+import type { Receipt, UpdateReceiptInput, ReceiptQueryFilters } from '../types/receipt';
 import { wrapError } from '../utils/errors';
 
 /**
@@ -76,6 +76,14 @@ export function createDynamoReceiptStore(): ReceiptStore {
     },
 
     async list(filters: Parameters<ReceiptStore['list']>[0]) {
+      try {
+        return await queryReceipts(filters);
+      } catch (error) {
+        return wrap(error, 'QUERY_FAILED');
+      }
+    },
+
+    async query(filters: ReceiptQueryFilters) {
       try {
         return await queryReceipts(filters);
       } catch (error) {

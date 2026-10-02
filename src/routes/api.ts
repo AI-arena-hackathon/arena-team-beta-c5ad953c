@@ -11,6 +11,15 @@ import {
   type CaptureImageInput,
 } from '../services/capture';
 import {
+  processReceipt,
+  reprocessReceipt,
+  ProcessingError,
+  ReceiptNotFoundForProcessingError,
+  ReceiptNotPendingError,
+  type ProcessingOptions,
+  type ReceiptProcessorDeps,
+} from '../services/processing';
+import {
   recordConsent,
   getConsent,
   listConsents,
@@ -44,6 +53,7 @@ export interface ApiRouterOptions extends CaptureDeps {
   imageStore: ImageStore;
   consentStore: ConsentStore;
   dsrStore: DataSubjectRequestStore;
+  processingDeps?: ReceiptProcessorDeps;
 }
 
 function parseConsentInput(body: unknown): { consentType: string; status: string; version: string; ipAddress?: string; userAgent?: string } {
@@ -221,6 +231,33 @@ export function createApiRouter(options: ApiRouterOptions): Router {
     res.json({ usage: await getMonthlyUsage(userId, deps) });
   }));
 
+  const processingDeps: ReceiptProcessorDeps = options.processingDeps ?? {
+    receiptStore: options.store,
+    imageStore: options.imageStore,
+  };
+
+  router.post('/api/receipts/:receiptId/process', asyncHandler(async (req, res) => {
+    const userId = identityResolver(req);
+    const receiptId = req.params.receiptId;
+    const options_: ProcessingOptions = {
+      useTextract: req.body?.useTextract,
+      useOcrFallback: req.body?.useOcrFallback,
+    };
+    const result = await processReceipt(receiptId, userId, processingDeps, options_);
+    res.json({ receipt: result.receipt, ocrWarnings: result.ocrWarnings, categorization: result.categorization });
+  }));
+
+  router.post('/api/receipts/:receiptId/reprocess', asyncHandler(async (req, res) => {
+    const userId = identityResolver(req);
+    const receiptId = req.params.receiptId;
+    const options_: ProcessingOptions = {
+      useTextract: req.body?.useTextract,
+      useOcrFallback: req.body?.useOcrFallback,
+    };
+    const result = await reprocessReceipt(receiptId, userId, processingDeps, options_);
+    res.json({ receipt: result.receipt, ocrWarnings: result.ocrWarnings, categorization: result.categorization });
+  }));
+
   const complianceDeps: ComplianceDeps = {
     consentStore: options.consentStore,
     dsrStore: options.dsrStore,
@@ -340,5 +377,67 @@ export function createApiRouter(options: ApiRouterOptions): Router {
     res.json({ request });
   }));
 
+  // Export endpoints
+  router.get('/api/receipts/export', asyncHandler(async (req, res) => {
+    const userId = identityResolver(req);
+    const limit = parseLimit(req.query.limit);
+    const status = parseStatus(req.query.status);
+    const includeLineItems = req.query.includeLineItems === 'true';
+    const includeOcrText = req.query.includeOcrText === 'true';
+
+    const { exportReceipts } = await import('../services/export');
+    const { generateExportFilename } = await import('../services/export-sync');
+
+    const result = await exportReceipts(
+      userId,
+      { limit, status },
+      { includeLineItems, includeOcrText },
+      { receiptStore: options.store }
+    );
+
+    const filename = generateExportFilename(userId);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(result.csv);
+  }));
+
+  router.post('/api/receipts/export/sync', asyncHandler(async (req, res) => {
+    const userId = identityResolver(req);
+    const limit = parseLimit(req.query.limit);
+    const status = parseStatus(req.query.status);
+    const webhookUrl = req.body?.webhookUrl;
+    const includeLineItems = req.body?.includeLineItems === true;
+    const includeOcrText = req.body?.includeOcrText === true;
+    const metadata = req.body?.metadata;
+
+    const { exportAndSync } = await import('../services/export-sync');
+
+    const result = await exportAndSync(
+      userId,
+      { limit, status },
+      { webhookUrl, includeLineItems, includeOcrText, metadata },
+      { receiptStore: options.store }
+    );
+
+    res.json(result);
+  }));
+
+  router.get('/api/compliance/export/:requestId', asyncHandler(async (req, res) => {
+    const request = await getDataSubjectRequest(req.params.requestId, complianceDeps);
+    if (!request) {
+      throw new CaptureError('Data subject request not found', 'NOT_FOUND', 404);
+    }
+    const userId = identityResolver(req);
+    if (request.userId !== userId) {
+      throw new CaptureError('Data subject request not found', 'NOT_FOUND', 404);
+    }
+
+    const { exportDataSubjectRequestData } = await import('../services/compliance');
+    const result = await exportDataSubjectRequestData(req.params.requestId, complianceDeps);
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+    res.send(result.csv);
+  }));
   return router;
 }

@@ -289,7 +289,7 @@ export async function processDataSubjectRequest(
       case 'access':
       case 'portability':
         if (deps.receiptStore) {
-          const receipts = await deps.receiptStore.list({ userId: request.userId, limit: 10000 });
+          const receipts = await (deps.receiptStore || { list: async () => ({ items: [], count: 0 }) }).list({ userId: request.userId, limit: 10000 });
           result = {
             recordsAffected: receipts.count,
             exportUrl: `/api/compliance/export/${requestId}`,
@@ -299,7 +299,7 @@ export async function processDataSubjectRequest(
 
       case 'deletion':
         if (deps.receiptStore && deps.imageStore) {
-          const receipts = await deps.receiptStore.list({ userId: request.userId, limit: 10000 });
+          const receipts = await (deps.receiptStore || { list: async () => ({ items: [], count: 0 }) }).list({ userId: request.userId, limit: 10000 });
           let deletedCount = 0;
           for (const receipt of receipts.items) {
             const r = receipt as { receiptId: string };
@@ -469,4 +469,53 @@ This Service uses minimal cookies strictly necessary for authentication and sess
 
 ## Managing Cookies
 You can control cookies through your browser settings. Disabling essential cookies may prevent the Service from functioning.`;
+}
+export interface DataExportResult {
+  csv: string;
+  filename: string;
+  requestId: string;
+}
+
+export async function exportDataSubjectRequestData(
+  requestId: string,
+  deps: ComplianceDeps
+): Promise<DataExportResult> {
+  const request = await getDataSubjectRequest(requestId, deps);
+  if (!request) {
+    throw new CaptureError(`Data subject request not found: ${requestId}`, 'NOT_FOUND', 404);
+  }
+  if (request.status !== 'completed') {
+    throw new CaptureError(`Data subject request is not completed: ${requestId}`, 'INVALID_STATUS', 409);
+  }
+  if (request.type !== 'access' && request.type !== 'portability') {
+    throw new CaptureError(`Data export not available for request type: ${request.type}`, 'INVALID_REQUEST_TYPE', 400);
+  }
+
+  const receipts = await (deps.receiptStore || { list: async () => ({ items: [], count: 0 }) }).list({ userId: request.userId, limit: 1000 });
+
+  const csvLines = [
+    'receiptId,userId,merchantName,transactionDate,total,currency,status,createdAt',
+  ];
+  for (const receipt of receipts.items as any[]) {
+    const meta = receipt.metadata || {};
+    csvLines.push(
+      `${receipt.receiptId},${receipt.userId},${(meta.merchantName || '').replace(/,/g, ' ')},${meta.transactionDate || ''},${meta.total || ''},${meta.currency || ''},${receipt.status || ''},${receipt.createdAt || ''}`
+    );
+  }
+
+  const csv = csvLines.join('\n') + '\n';
+  const filename = `data-export-${requestId}.csv`;
+
+  return {
+    csv,
+    filename,
+    requestId,
+  };
+}
+
+export class CaptureError extends AppError {
+  constructor(message: string, code: string, statusCode: number = 500) {
+    super(message, code, statusCode);
+    this.name = 'CaptureError';
+  }
 }
