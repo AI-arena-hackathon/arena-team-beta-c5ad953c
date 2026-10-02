@@ -38,6 +38,9 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [x] One-action capture: pre-flight validation, quota-safe pending recovery, receipt table + detail panel, and `DELETE /api/receipts/:id` to reclaim a stranded slot — 60 tests (41 new), verified in headless Chromium
 - [x] Code + security review pass: honest test interfaces, per-failure retry actions, no unreachable recovery affordance, audit log on discard, exact CORS method list
 - [x] Implement compliance & data handling: user consent tracking (POST/GET/DELETE /api/compliance/consent), data retention policies (GET /api/compliance/retention), GDPR-style data subject rights — access/deletion/portability/rectification/restriction (POST/GET /api/compliance/data-request), and legal disclaimer endpoints (GET /api/compliance/disclaimers, /api/compliance/legal) — 140 new tests, coverage >95%
+- [x] Render the consent checkboxes in the capture console (carried over uncommitted from the compliance turn and committed on its own)
+- [x] Accessibility pass on the capture console: skip link, named/described drop zone, table caption, `aria-current` row, live regions for status/detail/consent, focus moved to the error box and returned on dismiss, focus preserved across table re-renders and parked on the list summary when a row disappears, `aria-disabled` capture button that focuses the blocking control instead of being unreachable, `prefers-reduced-motion` + `forced-colors` CSS, 1.9:1→5.2:1 focus ring and 2.6:1→4.8:1 disabled button — 22 tests in `src/ui/accessibility.test.ts`, verified in headless Chromium
+- [x] Fix the consent gate never re-evaluating: ticking a required consent left the capture button unavailable until something else changed, so the form looked broken
 
 ## In Progress
 
@@ -45,6 +48,10 @@ you're actively working on in In Progress, add follow-ups to Todo.
 
 ## Follow-ups discovered
 
+- [ ] Fix the `src/index.test.ts` boot-timeout flake: the composition-root suite occasionally exceeds jest's 5 s default under a full parallel run with coverage (passed 3 of 4 full runs, and always in isolation) — raise the timeout for that suite or load the root once per describe
+- [ ] `public/app.js` is now ~1040 lines, past the ~1000-line inspection signal; extract the records rendering (`receiptRow` / `renderDetail` / `lineItemTable`) into their own classic script before piling more on it
+- [ ] Add a `lang`-aware number/date format (the console formats with a fixed `en-GB` formatter regardless of the user's locale) and a units test for the amount unit decision below
+- [ ] Re-check contrast after any restyle: `--muted` on `#f8fafc` and the `.notice` copy sit close to the 4.5:1 line and are untested by tooling
 - [ ] Upgrade the lint toolchain to eslint 9 + flat config to clear 6 dev-only `minimatch` ReDoS advisories (`npm audit` is clean for runtime deps)
 - [ ] Add per-IP rate limiting on capture endpoints; the monthly free-tier quota exists but there is no request-rate control yet
 - [ ] Validate image magic bytes on upload (content-type allowlist is enforced, bytes are not sniffed yet)
@@ -52,13 +59,12 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [ ] Delete the S3 object when a pending upload is discarded (today the reclaim drops the receipt row; a reserved-then-abandoned capture leaves the object behind when bytes had already landed)
 - [ ] Anchor receipt ids to `^rcpt_` in `validateReceiptId` — it is a path segment, and the receipt id is attacker-adjacent
 - [ ] Validate `GET /api/receipts/:id` with the same rule as the other receipt-id paths (it reads the store directly)
-- [ ] Add jsdom coverage for `public/app.js` wiring (`jest-environment-jsdom` is not installed); `recoveryFor` is extracted and unit-tested, the DOM glue is not
 - [ ] Paginate the console table (the API caps a page at 200 and the list summary now admits truncation)
-- [ ] Wire consent UI into the browser capture console (pre-capture consent checkboxes for required/optional consents)
 - [ ] Add automated data retention cleanup job (cron/lambda to purge expired receipts, images, audit logs, consent records per policy)
 - [ ] Implement `/api/compliance/export/:requestId` endpoint to serve the actual data export file for completed access/portability requests
 - [ ] Add cookie consent banner and tracking consent to the browser console
 - [ ] Persist consent records to DynamoDB (currently only memory store; add DynamoDB adapter for ConsentStore and DataSubjectRequestStore)
+- [ ] Add jsdom coverage for the remaining `public/app.js` DOM glue (focus movement, live-region writes, the delegated consent `change` listener); `jest-environment-jsdom` is still not installed, so those paths are covered by the browser pass and by the markup invariants in `src/ui/accessibility.test.ts` only
 
 ## Todo
 

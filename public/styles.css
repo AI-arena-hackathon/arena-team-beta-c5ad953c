@@ -31,6 +31,26 @@ body {
   line-height: 1.6;
 }
 
+/* Off-screen until focused: a keyboard user must be able to jump past the
+   masthead and the status pills in one keypress. */
+.skip-link {
+  position: absolute;
+  top: -3rem;
+  left: 1rem;
+  z-index: 10;
+  padding: 0.5rem 0.9rem;
+  border-radius: 0.5rem;
+  background: var(--card);
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+  transition: top 0.15s ease;
+}
+
+.skip-link:focus {
+  top: 0.75rem;
+}
+
 .masthead {
   padding: 2rem 1.5rem 1rem;
   border-bottom: 1px solid #1e293b;
@@ -184,11 +204,22 @@ select {
   transition: border 0.15s ease, box-shadow 0.15s ease;
 }
 
+/* A translucent ring washed out to ~1.8:1 against the white card it sits on.
+   Solid --accent is 5.2:1 on white and 4.6:1 on the dark masthead. */
+a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 .drop-zone:focus-visible,
 button:focus-visible {
-  outline: 3px solid rgba(37, 99, 235, 0.4);
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Regions the console focuses on the user's behalf (the error box, the resume
+   banner, the list summary) keep a ring too — they are not text inputs, so
+   :focus-visible is not guaranteed to match after a programmatic move. */
+[tabindex="-1"]:focus {
+  outline: 3px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -323,12 +354,25 @@ button:focus-visible {
 .consent-required-badge {
   display: inline-block;
   margin-left: 0.35rem;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   padding: 0.1rem 0.35rem;
   border-radius: 999px;
   background: var(--accent);
   color: #fff;
   font-weight: 500;
+}
+
+/* The consent list states its own blocker: a message in the file summary about
+   a consent, far below the fieldset, is a message nobody connects to it. */
+.consent-summary {
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--bad);
+}
+
+.consent-summary:empty {
+  margin: 0;
 }
 
 button {
@@ -351,6 +395,15 @@ button:hover:not(:disabled) {
 
 button:disabled {
   background: #94a3b8;
+  cursor: not-allowed;
+}
+
+/* The capture button stays reachable when it cannot run — a real `disabled`
+   attribute drops it out of the tab order, so a keyboard user never finds out
+   why it is dead. --muted on white is 4.8:1, unlike the old #94a3b8 at 2.6:1. */
+button[aria-disabled="true"] {
+  background: var(--muted);
+  color: #fff;
   cursor: not-allowed;
 }
 
@@ -652,4 +705,54 @@ tbody tr.selected {
 .line-items th,
 .line-items td {
   padding: 0.4rem 0.5rem;
+}
+
+/* Every transition on the console is decorative; a user who asked for less
+   motion should not pay for it. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+
+  .skip-link:focus {
+    top: 0.75rem;
+  }
+}
+
+/* Windows high contrast drops author colours, which would leave the drop zone's
+   dashed border and the status badges invisible; system colours are the only
+   ones the user can still see. */
+@media (forced-colors: active) {
+  .drop-zone,
+  .pill,
+  .badge,
+  .consent-required-badge,
+  .consent-version,
+  .alert,
+  .banner,
+  .notice,
+  button,
+  .button-secondary,
+  .button-ghost {
+    border: 1px solid ButtonBorder;
+    forced-color-adjust: none;
+    color: ButtonText;
+    background: ButtonFace;
+  }
+
+  a:focus-visible,
+  button:focus-visible,
+  .drop-zone:focus-visible,
+  [tabindex="-1"]:focus {
+    outline: 3px solid Highlight;
+  }
+
+  tbody tr.selected {
+    outline: 2px solid Highlight;
+  }
 }

@@ -46,10 +46,12 @@
     listResult: document.getElementById('list-result'),
     tableBody: document.querySelector('#receipts tbody'),
     detailBody: document.getElementById('detail-body'),
+    detailAnnouncement: document.getElementById('detail-announcement'),
     consentFieldset: document.getElementById('consent-fieldset'),
     optionalConsentFieldset: document.getElementById('optional-consent-fieldset'),
     requiredConsents: document.getElementById('required-consents'),
     optionalConsents: document.getElementById('optional-consents'),
+    consentSummary: document.getElementById('consent-summary'),
   };
 
   const state = {
@@ -66,6 +68,9 @@
     busy: false,
     // The action the error box's "Try again" button runs, decided per failure.
     retryAction: null,
+    // Where focus came from before the error box took it, so dismissing the box
+    // returns the user to the field they were in.
+    errorReturnFocus: null,
     // The reserved receipt the error box's "Discard" button reclaims. Held in
     // memory too, so the affordance survives when sessionStorage is blocked.
     discardableId: null,
@@ -181,6 +186,10 @@
     els.fileSummary.className = `file-summary${tone ? ` file-summary-${tone}` : ''}`;
   }
 
+  function setConsentSummary(text) {
+    els.consentSummary.textContent = text;
+  }
+
   function describeError(error) {
     const code = error && error.code ? `${error.code}: ` : '';
     return `${code}${(error && error.message) || 'Something went wrong'}`;
@@ -190,6 +199,12 @@
    * `options.retry` is the function "Try again" runs, chosen per failure so a
    * half-finished upload is never restarted from scratch. `options.discard`
    * shows the reclaim button for a receipt that is holding a monthly slot.
+   *
+   * The box takes focus: an alert that only appears in the corner of the
+   * viewport is invisible to a screen-reader user who is somewhere else in the
+   * form, and to anyone who never looks up from the field they were editing.
+   * Whatever had focus is remembered, because hiding the box must not drop the
+   * user back to the top of the document.
    */
   function showError(message, options) {
     const { retry = null, discard = false } = options || {};
@@ -198,13 +213,25 @@
     els.errorBox.hidden = false;
     els.retryButton.hidden = !state.retryAction;
     els.discardButton.hidden = !discard;
+    if (document.activeElement !== els.errorBox) {
+      state.errorReturnFocus = document.activeElement;
+      els.errorBox.focus();
+    }
   }
 
   function hideError() {
+    const focusInside = els.errorBox.contains(document.activeElement);
     els.errorBox.hidden = true;
     els.retryButton.hidden = true;
     els.discardButton.hidden = true;
     state.retryAction = null;
+    if (focusInside) {
+      const target = state.errorReturnFocus && els.form.contains(state.errorReturnFocus)
+        ? state.errorReturnFocus
+        : els.captureButton;
+      target.focus();
+    }
+    state.errorReturnFocus = null;
   }
 
   function selectedFile() {
@@ -213,12 +240,22 @@
 
   function updateCaptureAvailability() {
     const file = selectedFile();
-    const problem = format.validationMessage(file, state.limits);
-    // Say why the button is dead instead of only greying it out.
-    setFileSummary(problem || (file ? format.formatFileSummary(file) : ''), problem ? 'bad' : 'idle');
-    els.captureButton.disabled = state.busy || Boolean(problem);
+    const fileProblem = format.validationMessage(file, state.limits);
+    const missing = missingConsents();
+    const reason = format.blockingReason({ fileProblem, missingConsents: missing });
+    // Each field states its own blocker. Parking a consent problem in the file
+    // summary — under a different field, three rows down — is how a user ends
+    // up hunting for a message that belongs to the box above it. A live region
+    // is also why the "no file yet" case stays silent until something was
+    // actually rejected: an empty form is not an error worth announcing.
+    setFileSummary(file ? fileProblem || format.formatFileSummary(file) : '', fileProblem ? 'bad' : 'idle');
+    setConsentSummary(reason && reason.field === 'consent' ? reason.message : '');
+    // aria-disabled, not disabled: a real disabled attribute drops the button
+    // out of the tab order, so a keyboard user never reaches the control that
+    // could tell them what is missing.
+    els.captureButton.setAttribute('aria-disabled', String(state.busy || Boolean(reason)));
     els.captureButton.textContent = state.busy ? 'Capturing…' : 'Capture receipt';
-    return problem;
+    return reason;
   }
 
   /* ------------------------------------------------------------ pending memory */
@@ -369,33 +406,48 @@
     els.optionalConsentFieldset.hidden = optional.length === 0;
   }
 
-  /** Check if all required consents are checked in the form. */
-  function areRequiredConsentsMet() {
-    const { required } = format.splitConsents(state.requiredConsents, state.optionalConsents);
-    if (required.length === 0) return true;
-    return required.every((item) => {
-      const checkbox = document.getElementById(`consent_${item.type}`);
-      return checkbox && checkbox.checked;
+  /** The required consents the user has not ticked, in the order they are shown. */
+  function missingConsents() {
+    const granted = [];
+    state.requiredConsents.forEach((consent) => {
+      const checkbox = document.getElementById(`consent_${consent.type}`);
+      if (checkbox && checkbox.checked) granted.push(consent.type);
     });
+    return format.missingRequiredConsents(state.requiredConsents, granted);
   }
 
-  /** Update capture button state based on consents, file, and quota. */
-  function updateCaptureAvailability() {
-    const file = selectedFile();
-    const problem = format.validationMessage(file, state.limits);
-    const consentsMet = areRequiredConsentsMet();
-
-    // Say why the button is dead instead of only greying it out.
-    if (!consentsMet) {
-      setFileSummary('Please accept all required consents before capturing.', 'bad');
-    } else {
-      setFileSummary(problem || (file ? format.formatFileSummary(file) : ''), problem ? 'bad' : 'idle');
+  /**
+   * Move focus to the control that has to change. Announces nothing itself: the
+   * per-field status regions already carry the text, and the focused checkbox
+   * reads out its own label.
+   */
+  function focusBlocking(reason) {
+    if (!reason) return;
+    if (reason.field === 'consent') {
+      const first = missingConsents()[0];
+      const target = first && document.getElementById(`consent_${first.type}`);
+      (target || els.consentFieldset).focus();
+      return;
     }
+    els.dropZone.focus();
+  }
 
-    const disabled = state.busy || Boolean(problem) || !consentsMet;
-    els.captureButton.disabled = disabled;
-    els.captureButton.textContent = state.busy ? 'Capturing…' : 'Capture receipt';
-    return problem || (!consentsMet ? 'consents' : null);
+  /**
+   * One owner for "the capture cannot run": each message goes to the field it
+   * belongs to, and focus lands on the control that has to change. An empty
+   * form is not an error, so a missing file is only reported once the user has
+   * asked for the capture.
+   */
+  function showBlockingReason(reason) {
+    if (!reason) return;
+    const file = selectedFile();
+    const fileProblem = format.validationMessage(file, state.limits);
+    setFileSummary(
+      file ? fileProblem || format.formatFileSummary(file) : reason.field === 'image' ? reason.message : '',
+      fileProblem ? 'bad' : 'idle'
+    );
+    setConsentSummary(reason.field === 'consent' ? reason.message : '');
+    focusBlocking(reason);
   }
 
   /* ------------------------------------------------------------------ records */
@@ -407,7 +459,41 @@
     });
   }
 
+  /**
+   * The table is rebuilt from scratch on every refresh, which destroys whatever
+   * row control the user was standing on. Remember it by receipt id and action
+   * so the rebuilt DOM can hand focus back; without this, tabbing through the
+   * list after a refresh drops the user back to the top of the document.
+   */
+  function focusedRowControl() {
+    const active = document.activeElement;
+    if (!active || !els.tableBody.contains(active)) return null;
+    const receiptId = active.getAttribute('data-receipt-id');
+    const action = active.getAttribute('data-action');
+    return receiptId && action ? { receiptId, action } : null;
+  }
+
+  function restoreRowControlFocus(remembered) {
+    if (!remembered) return;
+    // Matched by attribute value, never by interpolating the id into a
+    // selector: an id with a quote or a bracket in it would throw a SyntaxError
+    // out of renderRows and take the whole list down with it.
+    const rebuilt = Array.prototype.find.call(
+      els.tableBody.querySelectorAll('button[data-action]'),
+      (button) => button.getAttribute('data-receipt-id') === remembered.receiptId && button.getAttribute('data-action') === remembered.action
+    );
+    if (rebuilt) {
+      rebuilt.focus();
+      return;
+    }
+    // The row is gone — a discard, or a filter change. Park focus on the summary
+    // above the table rather than on <body>, where the next Tab starts from the
+    // top of the page.
+    els.listResult.focus();
+  }
+
   function renderRows() {
+    const remembered = focusedRowControl();
     const rows = receiptRows();
     els.tableBody.replaceChildren();
 
@@ -421,6 +507,7 @@
 
     els.listResult.textContent = format.listSummary({ total: state.count, shown: rows.length, limit: state.limit });
     els.listResult.className = 'result ok';
+    restoreRowControlFocus(remembered);
   }
 
   function emptyRow(message, span) {
@@ -435,7 +522,12 @@
 
   function receiptRow(receipt) {
     const row = document.createElement('tr');
-    if (receipt.receiptId === state.selectedId) row.classList.add('selected');
+    if (receipt.receiptId === state.selectedId) {
+      row.classList.add('selected');
+      // aria-current is the honest way to say "this is the one you opened" in a
+      // plain table; the background tint alone is invisible to a screen reader.
+      row.setAttribute('aria-current', 'true');
+    }
 
     const merchant = document.createElement('td');
     const merchantName = format.receiptMerchant(receipt);
@@ -462,15 +554,10 @@
     const action = document.createElement('td');
     const actions = document.createElement('div');
     actions.className = 'row-actions';
-    const open = document.createElement('button');
-    open.type = 'button';
-    open.className = 'button-ghost row-action';
-    open.textContent = 'View';
-    open.setAttribute('aria-label', `View receipt ${receipt.receiptId}`);
-    open.addEventListener('click', () => selectReceipt(receipt.receiptId));
+    const open = rowControl('view', receipt.receiptId);
     actions.appendChild(open);
     if (receipt.status === 'pending') {
-      actions.appendChild(discardControl(receipt.receiptId));
+      actions.appendChild(rowControl('discard', receipt.receiptId));
     }
     action.appendChild(actions);
 
@@ -486,15 +573,18 @@
   /**
    * A reserved receipt with no photo is a wasted monthly slot, so both the list
    * row and the detail panel offer the reclaim. The copy that points users here
-   * has to be actionable.
+   * has to be actionable, and every control is named after the receipt it acts
+   * on — five buttons all called "View" is unusable by keyboard alone.
    */
-  function discardControl(receiptId) {
+  function rowControl(action, receiptId, label) {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'button-ghost row-action danger';
-    button.textContent = 'Discard';
-    button.setAttribute('aria-label', `Discard pending receipt ${receiptId}`);
-    button.addEventListener('click', () => discardPending(receiptId));
+    button.className = 'button-ghost row-action';
+    button.textContent = label || format.actionText(action);
+    button.setAttribute('aria-label', format.actionLabel(action, receiptId));
+    button.setAttribute('data-action', action);
+    button.setAttribute('data-receipt-id', receiptId);
+    button.addEventListener('click', () => (action === 'discard' ? discardPending(receiptId) : selectReceipt(receiptId)));
     return button;
   }
 
@@ -512,6 +602,9 @@
 
   function renderDetail(receipt) {
     els.detailBody.replaceChildren();
+    // The panel sits below the fold of a long list, so the announcement is what
+    // confirms the row control did anything at all.
+    els.detailAnnouncement.textContent = receipt ? format.detailAnnouncement(receipt) : '';
     if (!receipt) {
       const hint = document.createElement('p');
       hint.className = 'hint';
@@ -576,9 +669,11 @@
     if (receipt.status === 'pending') {
       const actions = document.createElement('div');
       actions.className = 'detail-actions';
-      const discard = discardControl(receipt.receiptId);
-      discard.classList.add('button-danger');
-      discard.textContent = 'Discard pending receipt';
+      const discard = rowControl('discard', receipt.receiptId, 'Discard pending receipt');
+      // ghost + danger, not button-danger: `.row-action` sets the accent colour
+      // and would leave blue text on a red fill (2.4:1) on the control whose job
+      // is to be unmistakable.
+      discard.classList.add('danger');
       actions.appendChild(discard);
       els.detailBody.appendChild(actions);
     }
@@ -732,9 +827,11 @@
 
   async function runCapture() {
     const file = selectedFile();
-    const problem = format.validationMessage(file, state.limits);
-    if (problem) {
-      setFileSummary(problem, 'bad');
+    const fileProblem = format.validationMessage(file, state.limits);
+    const missing = missingConsents();
+    const reason = format.blockingReason({ fileProblem, missingConsents: missing });
+    if (reason) {
+      showBlockingReason(reason);
       return;
     }
 
@@ -921,6 +1018,13 @@
   });
 
   els.searchInput.addEventListener('input', renderRows);
+
+  // Ticking a consent is the only way the user can satisfy the consent gate, so
+  // it has to re-evaluate the capture button. Without this the button stays
+  // unavailable until something else changes, and the form looks broken.
+  [els.requiredConsents, els.optionalConsents].forEach((list) => {
+    list.addEventListener('change', updateCaptureAvailability);
+  });
 
   // Switching identity must not leave the previous user's records on screen.
   els.userId.addEventListener('change', () => {

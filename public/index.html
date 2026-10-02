@@ -11,20 +11,21 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
     <header class="masthead">
       <div class="masthead-inner">
         <div>
           <h1>Auto-Expense Capture Assistant</h1>
           <p class="tagline">Receipts in, clean searchable expense records out — no manual entry.</p>
         </div>
-        <div class="status-row">
+        <div class="status-row" role="status">
           <span id="health" class="pill pill-idle">checking health…</span>
           <span id="usage" class="pill pill-idle">usage …</span>
         </div>
       </div>
     </header>
 
-    <main>
+    <main id="main" tabindex="-1">
       <section class="card card-capture" aria-labelledby="capture-heading">
         <h2 id="capture-heading">Capture a receipt</h2>
         <p class="hint">
@@ -39,28 +40,46 @@
           <fieldset id="consent-fieldset" class="consent-fieldset" hidden>
             <legend>Required consents</legend>
             <p class="hint consent-hint">You must accept these to capture receipts.</p>
-            <div id="required-consents" class="consent-list" role="group" aria-label="Required consents"></div>
+            <div id="required-consents" class="consent-list"></div>
+            <p id="consent-summary" class="consent-summary" role="status"></p>
           </fieldset>
 
           <fieldset id="optional-consent-fieldset" class="consent-fieldset" hidden>
             <legend>Optional consents</legend>
             <p class="hint consent-hint">These improve your experience but are not required.</p>
-            <div id="optional-consents" class="consent-list" role="group" aria-label="Optional consents"></div>
+            <div id="optional-consents" class="consent-list"></div>
           </fieldset>
 
-          <label class="label-like" for="receipt-image">Receipt photo</label>
-          <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-describedby="file-help">
-            <input id="receipt-image" name="image" type="file" class="visually-hidden" />
+          <label class="label-like" id="receipt-image-label" for="receipt-image">Receipt photo</label>
+          <div
+            id="drop-zone"
+            class="drop-zone"
+            role="button"
+            tabindex="0"
+            aria-labelledby="receipt-image-label"
+            aria-describedby="file-help file-summary"
+          >
+            <!-- The drop zone is the one control a keyboard user meets, so the
+                 real input is taken out of the tab order: a visually hidden
+                 focus stop announces "choose file" and shows nothing. -->
+            <input
+              id="receipt-image"
+              name="image"
+              type="file"
+              class="visually-hidden"
+              tabindex="-1"
+              aria-hidden="true"
+            />
             <p class="drop-title">Drop a receipt photo here or click to choose a file</p>
             <p class="drop-sub" id="file-help">JPEG, PNG, WebP or HEIC · up to 10 MB</p>
           </div>
           <p id="file-summary" class="file-summary" role="status"></p>
 
-          <button type="submit" id="capture-button" disabled>Capture receipt</button>
+          <button type="submit" id="capture-button" aria-disabled="true">Capture receipt</button>
           <p id="capture-progress" class="progress" role="status" aria-live="polite"></p>
         </form>
 
-        <div id="capture-error" class="alert" role="alert" hidden>
+        <div id="capture-error" class="alert" role="alert" tabindex="-1" hidden>
           <p id="capture-error-message" class="alert-message"></p>
           <div class="alert-actions">
             <button type="button" id="retry-button" class="button-secondary" hidden>Try again</button>
@@ -71,7 +90,7 @@
           </div>
         </div>
 
-        <div id="resume-banner" class="banner" role="status" hidden>
+        <div id="resume-banner" class="banner" role="status" tabindex="-1" hidden>
           <p id="resume-message"></p>
           <div class="alert-actions">
             <button type="button" id="resume-confirm" class="button-secondary" hidden>Finish that upload</button>
@@ -101,9 +120,13 @@
           </div>
           <button type="button" id="refresh-button" class="button-secondary">Refresh</button>
         </div>
-        <p id="list-result" class="result" role="status" aria-live="polite"></p>
+        <p id="list-result" class="result" role="status" aria-live="polite" tabindex="-1"></p>
         <div class="table-scroll">
           <table id="receipts">
+            <caption class="visually-hidden">
+              Expense records for this user. Each row offers a view control, and a reserved row also offers a
+              discard control that releases its monthly slot.
+            </caption>
             <thead>
               <tr>
                 <th scope="col">Merchant</th>
@@ -120,6 +143,7 @@
 
       <section class="card card-detail" aria-labelledby="detail-heading">
         <h2 id="detail-heading">Receipt detail</h2>
+        <p id="detail-announcement" class="visually-hidden" role="status"></p>
         <div id="detail-body">
           <p class="hint">Select a row above to see the extracted expense record.</p>
         </div>

@@ -57,6 +57,19 @@
     archived: 'idle',
   };
 
+  // A table of controls all labelled "View" is a list of five identical
+  // buttons to anyone navigating it by voice or screen reader, so each control
+  // is named after the receipt it acts on.
+  const ACTION_LABELS = {
+    view: 'View receipt',
+    discard: 'Discard pending receipt',
+  };
+
+  const ACTION_TEXTS = {
+    view: 'View',
+    discard: 'Discard',
+  };
+
   function isFiniteNumber(value) {
     return typeof value === 'number' && Number.isFinite(value);
   }
@@ -297,6 +310,65 @@
     return payload;
   }
 
+  /* --------------------------------------------------------------- a11y copy */
+
+  /** Accessible name for a row or detail control, e.g. "View receipt rcpt_1". */
+  function actionLabel(action, receiptId) {
+    const id = typeof receiptId === 'string' ? receiptId.trim() : '';
+    const base = has(ACTION_LABELS, action) ? ACTION_LABELS[action] : 'Receipt';
+    return id ? `${base} ${id}` : base;
+  }
+
+  /** The short visible text; the receipt id belongs in the accessible name. */
+  function actionText(action) {
+    return has(ACTION_TEXTS, action) ? ACTION_TEXTS[action] : 'Control';
+  }
+
+  /**
+   * The one line spoken when the detail panel opens. It names what was selected
+   * — a screen-reader user who activated a row control otherwise gets no
+   * confirmation that anything happened, because the panel is far down the page.
+   */
+  function detailAnnouncement(receipt) {
+    if (!receipt) return 'No receipt selected.';
+    const head = receiptMerchant(receipt) || `Receipt ${receipt.receiptId}`;
+    const total = receiptTotal(receipt);
+    const money = total === null ? null : `${formatAmount(total)} ${formatCurrency(receipt)}`;
+    return money ? `${head} — ${money} — ${statusLabel(receipt.status)}` : `${head} — ${statusLabel(receipt.status)}`;
+  }
+
+  /**
+   * Required consents the user has not accepted. A consent list the user cannot
+   * see the state of is a legal gate they cannot pass, so the console needs the
+   * outstanding ones by name — not a boolean.
+   */
+  function missingRequiredConsents(requiredConsents, grantedTypes) {
+    if (!Array.isArray(requiredConsents)) return [];
+    const granted = new Set(Array.isArray(grantedTypes) ? grantedTypes.filter((type) => typeof type === 'string') : []);
+    return requiredConsents
+      .filter((consent) => consent && typeof consent.type === 'string' && !granted.has(consent.type))
+      .map((consent) => buildConsentItem(consent, true));
+  }
+
+  /**
+   * Why the capture cannot run, and which control owns the fix. Returning the
+   * field lets the console move focus there instead of only greying a button
+   * the user cannot reach to find out why.
+   */
+  function blockingReason(input) {
+    const settings = input || {};
+    const fileProblem = typeof settings.fileProblem === 'string' ? settings.fileProblem.trim() : '';
+    if (fileProblem) return { field: 'image', message: fileProblem };
+    const missing = Array.isArray(settings.missingConsents) ? settings.missingConsents : [];
+    if (missing.length === 0) return null;
+    const names = missing
+      .map((item) => (item && (item.label || item.type)) || '')
+      .filter(Boolean)
+      .join(', ');
+    const subject = missing.length === 1 ? 'consent' : 'consents';
+    return { field: 'consent', message: `Accept the required ${subject} before capturing: ${names}.` };
+  }
+
   return {
     ACCEPT_ATTRIBUTE,
     formatAmount,
@@ -319,5 +391,10 @@
     splitConsents,
     areRequiredConsentsGranted,
     buildConsentPayload,
+    actionLabel,
+    actionText,
+    detailAnnouncement,
+    missingRequiredConsents,
+    blockingReason,
   };
 });

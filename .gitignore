@@ -22,6 +22,10 @@ venv/
 logs/
 *.log
 
+# Browser-verification fixtures (created by hand during a Playwright pass, not
+# part of the test suite — jsdom is not a dependency)
+/test-receipt.jpg
+
 # OS / editor
 .DS_Store
 Thumbs.db
