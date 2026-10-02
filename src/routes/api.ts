@@ -10,9 +10,30 @@ import {
   type CaptureDeps,
   type CaptureImageInput,
 } from '../services/capture';
+import {
+  recordConsent,
+  getConsent,
+  listConsents,
+  withdrawConsent,
+  getRequiredConsents,
+  getOptionalConsents,
+  getAllConsentTypes,
+  getRetentionPolicies,
+  createDataSubjectRequest,
+  getDataSubjectRequest,
+  listDataSubjectRequests,
+  processDataSubjectRequest,
+  getLegalDocuments,
+  getLegalDocument,
+  getDisclaimers,
+  type ConsentStore,
+  type DataSubjectRequestStore,
+  type ComplianceDeps,
+} from '../services/compliance';
 import { RECEIPT_STATUS_VALUES, type ReceiptQueryFilters } from '../types/receipt';
 import type { IdentityResolver } from '../middleware/identity';
 import type { ImageStore } from '../services/object-store';
+import { validateConsentInput, validateDataSubjectRequestInput, validateConsentType } from '../types/compliance';
 
 export const MAX_PAGE_SIZE = 200;
 
@@ -21,6 +42,43 @@ export interface ApiRouterOptions extends CaptureDeps {
   ocrFallbackEnabled?: boolean;
   textractEnabled?: boolean;
   imageStore: ImageStore;
+  consentStore: ConsentStore;
+  dsrStore: DataSubjectRequestStore;
+}
+
+function parseConsentInput(body: unknown): { consentType: string; status: string; version: string; ipAddress?: string; userAgent?: string } {
+  const consent = (body as { consent?: Record<string, unknown> } | undefined)?.consent;
+  if (!consent || typeof consent !== 'object') {
+    throw new CaptureError('Body must include a "consent" object', 'VALIDATION_ERROR', 400);
+  }
+  const consentType = consent.consentType;
+  const status = consent.status;
+  const version = consent.version;
+  if (typeof consentType !== 'string' || typeof status !== 'string' || typeof version !== 'string') {
+    throw new CaptureError('consent.consentType, consent.status, and consent.version are required strings', 'VALIDATION_ERROR', 400);
+  }
+  return {
+    consentType,
+    status,
+    version,
+    ipAddress: typeof consent.ipAddress === 'string' ? consent.ipAddress : undefined,
+    userAgent: typeof consent.userAgent === 'string' ? consent.userAgent : undefined,
+  };
+}
+
+function parseDataSubjectRequestInput(body: unknown): { type: string; reason?: string } {
+  const dsr = (body as { request?: Record<string, unknown> } | undefined)?.request;
+  if (!dsr || typeof dsr !== 'object') {
+    throw new CaptureError('Body must include a "request" object', 'VALIDATION_ERROR', 400);
+  }
+  const type = dsr.type;
+  if (typeof type !== 'string') {
+    throw new CaptureError('request.type is a required string', 'VALIDATION_ERROR', 400);
+  }
+  return {
+    type,
+    reason: typeof dsr.reason === 'string' ? dsr.reason : undefined,
+  };
 }
 
 function parseLimit(raw: unknown): number {
@@ -161,6 +219,125 @@ export function createApiRouter(options: ApiRouterOptions): Router {
   router.get('/api/usage', asyncHandler(async (req, res) => {
     const userId = identityResolver(req);
     res.json({ usage: await getMonthlyUsage(userId, deps) });
+  }));
+
+  const complianceDeps: ComplianceDeps = {
+    consentStore: options.consentStore,
+    dsrStore: options.dsrStore,
+    receiptStore: options.store,
+    imageStore: options.imageStore,
+  };
+
+  router.get('/api/compliance/consent', asyncHandler(async (req, res) => {
+    const userId = identityResolver(req);
+    const consents = await listConsents(userId, complianceDeps);
+    res.json({ consents });
+  }));
+
+  router.get('/api/compliance/consent/required', (_req: Request, res: Response) => {
+    res.json({ required: getRequiredConsents() });
+  });
+
+  router.get('/api/compliance/consent/optional', (_req: Request, res: Response) => {
+    res.json({ optional: getOptionalConsents() });
+  });
+
+  router.get('/api/compliance/consent/types', (_req: Request, res: Response) => {
+    res.json({ types: getAllConsentTypes() });
+  });
+
+  router.post('/api/compliance/consent', asyncHandler(async (req, res) => {
+    const userId = identityResolver(req);
+    const input = parseConsentInput(req.body);
+    if (!validateConsentInput(input)) {
+      throw new CaptureError('Invalid consent input', 'VALIDATION_ERROR', 400);
+    }
+    const consent = await recordConsent(userId, input, complianceDeps);
+    res.status(201).json({ consent });
+  }));
+
+  router.get('/api/compliance/consent/:consentType', asyncHandler(async (req, res) => {
+    const userId = identityResolver(req);
+    if (!validateConsentType(req.params.consentType)) {
+      throw new CaptureError('Invalid consent type', 'VALIDATION_ERROR', 400);
+    }
+    const consent = await getConsent(userId, req.params.consentType, complianceDeps);
+    if (!consent) {
+      throw new CaptureError('Consent not found', 'NOT_FOUND', 404);
+    }
+    res.json({ consent });
+  }));
+
+  router.delete('/api/compliance/consent/:consentType', asyncHandler(async (req, res) => {
+    const userId = identityResolver(req);
+    if (!validateConsentType(req.params.consentType)) {
+      throw new CaptureError('Invalid consent type', 'VALIDATION_ERROR', 400);
+    }
+    const consent = await withdrawConsent(userId, req.params.consentType, complianceDeps);
+    if (!consent) {
+      throw new CaptureError('Consent not found', 'NOT_FOUND', 404);
+    }
+    res.json({ consent });
+  }));
+
+  router.get('/api/compliance/retention', (_req: Request, res: Response) => {
+    res.json({ policies: getRetentionPolicies() });
+  });
+
+  router.get('/api/compliance/disclaimers', (_req: Request, res: Response) => {
+    res.json({ disclaimers: getDisclaimers() });
+  });
+
+  router.get('/api/compliance/legal', (_req: Request, res: Response) => {
+    res.json({ documents: getLegalDocuments() });
+  });
+
+  router.get('/api/compliance/legal/:type', asyncHandler((req, res) => {
+    const legalTypes = ['terms_of_service', 'privacy_policy', 'cookie_policy'] as const;
+    const type = req.params.type;
+    if (!legalTypes.includes(type as typeof legalTypes[number])) {
+      throw new CaptureError('Invalid legal document type', 'VALIDATION_ERROR', 400);
+    }
+    const doc = getLegalDocument(type as typeof legalTypes[number]);
+    if (!doc) {
+      throw new CaptureError('Legal document not found', 'NOT_FOUND', 404);
+    }
+    const responseBody: { document: ReturnType<typeof getLegalDocument> } = { document: doc };
+    res.json(responseBody);
+    return Promise.resolve();
+  }));
+
+  router.post('/api/compliance/data-request', asyncHandler(async (req, res) => {
+    const userId = identityResolver(req);
+    const input = parseDataSubjectRequestInput(req.body);
+    if (!validateDataSubjectRequestInput(input)) {
+      throw new CaptureError('Invalid data subject request input', 'VALIDATION_ERROR', 400);
+    }
+    const request = await createDataSubjectRequest(userId, input, complianceDeps);
+    res.status(201).json({ request });
+  }));
+
+  router.get('/api/compliance/data-request', asyncHandler(async (req, res) => {
+    const userId = identityResolver(req);
+    const requests = await listDataSubjectRequests(userId, complianceDeps);
+    res.json({ requests });
+  }));
+
+  router.get('/api/compliance/data-request/:requestId', asyncHandler(async (req, res) => {
+    const request = await getDataSubjectRequest(req.params.requestId, complianceDeps);
+    if (!request) {
+      throw new CaptureError('Data subject request not found', 'NOT_FOUND', 404);
+    }
+    const userId = identityResolver(req);
+    if (request.userId !== userId) {
+      throw new CaptureError('Data subject request not found', 'NOT_FOUND', 404);
+    }
+    res.json({ request });
+  }));
+
+  router.post('/api/compliance/data-request/:requestId/process', asyncHandler(async (req, res) => {
+    const request = await processDataSubjectRequest(req.params.requestId, complianceDeps);
+    res.json({ request });
   }));
 
   return router;

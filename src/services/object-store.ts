@@ -35,6 +35,8 @@ export interface ImageStore {
   get(token: string): Promise<Buffer | null>;
   stat(token: string): Promise<StoredImage | null>;
   ownerOf(token: string): Promise<ImageOwner | null>;
+  /** Remove all images for a user (used for data deletion requests). */
+  removeByUser(userId: string): Promise<number>;
 }
 
 export interface MemoryImageStoreOptions {
@@ -123,6 +125,17 @@ export function createMemoryImageStore(options: MemoryImageStoreOptions = {}): I
       } catch (error) {
         return Promise.reject(error);
       }
+    },
+
+    removeByUser(userId: string): Promise<number> {
+      let count = 0;
+      for (const [token, stored] of objects.entries()) {
+        if (stored.owner?.userId === userId) {
+          objects.delete(token);
+          count++;
+        }
+      }
+      return Promise.resolve(count);
     },
   };
 }

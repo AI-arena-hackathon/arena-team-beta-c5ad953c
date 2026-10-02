@@ -9,6 +9,8 @@ import { createMemoryStore, type ReceiptStore } from './services/store';
 import type { UploadSigner } from './services/capture';
 import { createS3UploadSigner } from './services/uploads';
 import { createMemoryImageStore, type ImageStore } from './services/object-store';
+import { createMemoryConsentStore, type ConsentStore } from './services/compliance';
+import { createMemoryDataSubjectRequestStore, type DataSubjectRequestStore } from './services/compliance';
 
 export interface AppDeps {
   store?: ReceiptStore;
@@ -20,6 +22,8 @@ export interface AppDeps {
   textractEnabled?: boolean;
   serveUi?: boolean;
   corsOrigins?: readonly string[];
+  consentStore?: ConsentStore;
+  dsrStore?: DataSubjectRequestStore;
 }
 
 /**
@@ -49,6 +53,8 @@ export function createApp(deps: AppDeps = {}): Express {
       ocrFallbackEnabled: deps.ocrFallbackEnabled,
       textractEnabled: deps.textractEnabled,
       imageStore: deps.imageStore ?? createMemoryImageStore(),
+      consentStore: deps.consentStore ?? createMemoryConsentStore(),
+      dsrStore: deps.dsrStore ?? createMemoryDataSubjectRequestStore(),
     })
   );
 

@@ -37,6 +37,7 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [x] Update app.test.ts and capture.test.ts to use shared test helpers
 - [x] One-action capture: pre-flight validation, quota-safe pending recovery, receipt table + detail panel, and `DELETE /api/receipts/:id` to reclaim a stranded slot — 60 tests (41 new), verified in headless Chromium
 - [x] Code + security review pass: honest test interfaces, per-failure retry actions, no unreachable recovery affordance, audit log on discard, exact CORS method list
+- [x] Implement compliance & data handling: user consent tracking (POST/GET/DELETE /api/compliance/consent), data retention policies (GET /api/compliance/retention), GDPR-style data subject rights — access/deletion/portability/rectification/restriction (POST/GET /api/compliance/data-request), and legal disclaimer endpoints (GET /api/compliance/disclaimers, /api/compliance/legal) — 140 new tests, coverage >95%
 
 ## In Progress
 
@@ -53,6 +54,11 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [ ] Validate `GET /api/receipts/:id` with the same rule as the other receipt-id paths (it reads the store directly)
 - [ ] Add jsdom coverage for `public/app.js` wiring (`jest-environment-jsdom` is not installed); `recoveryFor` is extracted and unit-tested, the DOM glue is not
 - [ ] Paginate the console table (the API caps a page at 200 and the list summary now admits truncation)
+- [ ] Wire consent UI into the browser capture console (pre-capture consent checkboxes for required/optional consents)
+- [ ] Add automated data retention cleanup job (cron/lambda to purge expired receipts, images, audit logs, consent records per policy)
+- [ ] Implement `/api/compliance/export/:requestId` endpoint to serve the actual data export file for completed access/portability requests
+- [ ] Add cookie consent banner and tracking consent to the browser console
+- [ ] Persist consent records to DynamoDB (currently only memory store; add DynamoDB adapter for ConsentStore and DataSubjectRequestStore)
 
 ## Todo
 
